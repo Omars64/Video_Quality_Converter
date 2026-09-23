@@ -1,0 +1,6 @@
+# Native Linux Intel QSV/VAAPI override. This is NOT expected to work on Docker Desktop for Windows
+# when /dev/dri is not exposed. Use start-windows-native.ps1 on Windows for Quick Sync.
+services:
+  backend:
+    devices:
+      - /dev/dri:/dev/dri

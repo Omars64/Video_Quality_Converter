@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Video Quality Converter</string>
+    <string name="title_activity_main">Video Quality Converter</string>
+    <string name="package_name">com.omars64.videoqualityconverter</string>
+    <string name="custom_url_scheme">com.omars64.videoqualityconverter</string>
+</resources>

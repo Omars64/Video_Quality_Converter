@@ -1,0 +1,30 @@
+{
+  "name": "media-forge-frontend",
+  "private": true,
+  "version": "3.2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "node --test",
+    "preview": "vite preview",
+    "android:sync": "npm run build && cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/file-transfer": "^2.0.5",
+    "@capacitor/filesystem": "^8.1.3",
+    "@capacitor/share": "^8.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2",
+    "@vitejs/plugin-react": "^6.0.5",
+    "vite": "^8.2.1"
+  },
+  "engines": {
+    "node": ">=20.19.0"
+  }
+}
