@@ -9,6 +9,7 @@ backend/pytest-cache-files-*/
 **/__pycache__/
 *.pyc
 .env
+.env.local
 .DS_Store
 .vercel/
 frontend/android/.gradle/
