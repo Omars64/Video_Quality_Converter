@@ -156,6 +156,7 @@ def _yt_base(output_dir: Path) -> list[str]:
         sys.executable, "-m", "yt_dlp",
         "--no-playlist", "--newline", "--no-warnings",
         "--retries", "4", "--fragment-retries", "4",
+        "--max-filesize", str(settings.max_remote_bytes), "--socket-timeout", "30",
         "--concurrent-fragments", str(settings.youtube_concurrent_fragments),
         "--progress-template", "download:MFPROGRESS:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s",
         "--paths", str(output_dir),

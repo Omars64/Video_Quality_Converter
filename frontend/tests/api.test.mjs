@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { apiHeaders, apiUrl, getApiBaseUrl, getApiKey, normalizeApiBaseUrl, saveApiBaseUrl, saveApiKey } from '../src/api.js'
+import { apiHeaders, apiUrl, getApiBaseUrl, getSession, normalizeApiBaseUrl, saveApiBaseUrl, saveSession, clearSession, parseResponse } from '../src/api.js'
 
 const values = new Map()
 globalThis.window = {
@@ -8,6 +8,12 @@ globalThis.window = {
     getItem: key => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
   },
+  sessionStorage: {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: key => values.delete(key),
+  },
+  dispatchEvent: () => {},
 }
 
 test('backend origin can be saved and applied to API routes', () => {
@@ -25,10 +31,18 @@ test('backend URL rejects paths, credentials, and insecure remote origins', () =
   assert.equal(normalizeApiBaseUrl('http://localhost:8000'), 'http://localhost:8000')
 })
 
-test('API key is sent only in request headers', () => {
-  assert.equal(saveApiKey('  secret  '), 'secret')
-  assert.equal(getApiKey(), 'secret')
+test('session is sent only in request headers and cleared on signout', () => {
+  saveSession('secret')
+  assert.equal(getSession(), 'secret')
   assert.deepEqual(apiHeaders({ Accept: 'application/json' }), { Accept: 'application/json', Authorization: 'Bearer secret' })
-  assert.equal(saveApiKey(''), '')
+  clearSession()
   assert.deepEqual(apiHeaders(), {})
+})
+
+test('HTML errors are explained and expired sessions cleared', async () => {
+  await assert.rejects(parseResponse(new Response('<html>404</html>', {status:404})), /not connected/)
+  await assert.rejects(parseResponse(new Response('bad gateway', {status:502})), /starting/)
+  saveSession('expired')
+  await assert.rejects(parseResponse(new Response(JSON.stringify({detail:'Please sign in'}), {status:401})), /sign in/)
+  assert.equal(getSession(), '')
 })

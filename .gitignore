@@ -18,3 +18,4 @@ frontend/android/app/build/
 frontend/android/local.properties
 frontend/android/captures/
 .tools/
+/data/

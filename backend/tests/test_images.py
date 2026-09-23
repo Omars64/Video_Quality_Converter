@@ -18,6 +18,7 @@ def test_enhance_image(tmp_path):
     assert output.exists()
     with Image.open(output) as image:
         assert image.size == (128, 96)
+        assert image.format == "PNG"
     assert progress[-1] == 100
 
 

@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     max_image_upload_bytes: int = 500 * 1024 * 1024
     max_remote_bytes: int = 12 * 1024 * 1024 * 1024
     max_image_files: int = 100
+    max_image_pixels: int = 16_000_000
+    max_document_pages: int = 20
+    ffmpeg_threads: int = 2
     chunk_size_bytes: int = 1024 * 1024
     retention_hours: int = 24
     worker_count: int = 1
@@ -37,6 +40,8 @@ class Settings(BaseSettings):
     allowed_image_extensions: str = ".jpg,.jpeg,.png,.webp,.bmp,.tif,.tiff,.gif,.avif"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,https://localhost"
     api_key: str = ""
+    app_password_hash: str = ""
+    session_secret: str = ""
 
     @property
     def uploads_dir(self) -> Path:

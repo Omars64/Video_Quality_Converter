@@ -20,6 +20,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from .config import settings
+from .auth import router as auth_router, signing_key, valid_session
+from .version import VERSION
 from .db import create_job, delete_job_row, get_job, init_db, list_expired_jobs, list_jobs, mark_interrupted_jobs_failed
 from .downloads import (
     RemoteDownloadError,
@@ -32,6 +34,7 @@ from .downloads import (
 )
 from .hardware import detect_hardware
 from .images import FORMAT_EXTENSIONS, FORMAT_MIMES, ImageValidationError, convert_images, enhance_image, probe_image
+from .documents import convert_sources, validate_source
 from .queue_manager import JobManager
 from .video import VideoValidationError, probe_video, transcode
 
@@ -149,19 +152,13 @@ async def lifespan(_: FastAPI):
         manager.shutdown()
 
 
-app = FastAPI(title="Media Forge API", version="3.2.0", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = FastAPI(title="Media Forge API", version=VERSION, lifespan=lifespan)
+app.include_router(auth_router)
 
 
 def _download_signature(job_id: str, expires: int) -> str:
     payload = f"{job_id}:{expires}".encode()
-    return hmac.new(settings.api_key.encode(), payload, hashlib.sha256).hexdigest()
+    return hmac.new(signing_key(), payload, hashlib.sha256).hexdigest()
 
 
 def _valid_download_ticket(job_id: str, expires_raw: str | None, signature: str | None) -> bool:
@@ -177,21 +174,34 @@ def _valid_download_ticket(job_id: str, expires_raw: str | None, signature: str 
 
 @app.middleware("http")
 async def require_api_key(request: Request, call_next):
-    if not settings.api_key or not request.url.path.startswith("/api/") or request.method == "OPTIONS" or request.url.path == "/api/ping":
+    if not request.url.path.startswith("/api/") or request.method == "OPTIONS" or request.url.path in {"/api/ping", "/api/auth/login"}:
         return await call_next(request)
+    if not settings.api_key and (not settings.app_password_hash or len(settings.session_secret) < 32):
+        return JSONResponse({"detail": "The server is not configured yet. Please contact the app owner."}, status_code=503)
     bearer = request.headers.get("authorization", "")
-    if bearer.startswith("Bearer ") and hmac.compare_digest(bearer[7:], settings.api_key):
+    token = bearer[7:] if bearer.startswith("Bearer ") else ""
+    if token and (valid_session(token) or (settings.api_key and hmac.compare_digest(token, settings.api_key))):
         return await call_next(request)
     parts = request.url.path.split("/")
     if len(parts) == 5 and parts[1:3] == ["api", "jobs"] and parts[4] == "download" and request.method == "GET":
         if _valid_download_ticket(parts[3], request.query_params.get("expires"), request.query_params.get("token")):
             return await call_next(request)
-    return JSONResponse({"detail": "A valid API key is required."}, status_code=401)
+    return JSONResponse({"detail": "Please sign in to continue."}, status_code=401)
+
+
+# CORS must wrap authentication too, so browsers can read 401/503 responses.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/api/ping")
 def ping() -> dict:
-    return {"status": "ok", "version": "3.2.0"}
+    return {"status": "ok", "version": VERSION}
 
 
 @app.get("/api/health")
@@ -205,7 +215,7 @@ def health(refresh_hardware: bool = Query(False)) -> dict:
     hardware = detect_hardware(refresh=refresh_hardware)
     return {
         "status": "ok",
-        "version": "3.2.0",
+        "version": VERSION,
         "maxDurationSeconds": settings.max_duration_seconds,
         "maxInputResolution": "1080p",
         "workerCount": settings.worker_count,
@@ -392,14 +402,14 @@ async def create_image_conversion_job(
         for index, upload in enumerate(files):
             original_name = safe_filename(upload.filename, f"image-{index + 1}.jpg")
             extension = Path(original_name).suffix.lower()
-            if extension not in settings.allowed_image_extension_set:
-                raise HTTPException(status_code=415, detail=f"Unsupported image type: {extension or 'unknown'}")
+            if extension not in settings.allowed_image_extension_set | {".pdf", ".docx"}:
+                raise HTTPException(status_code=415, detail=f"Unsupported file type: {extension or 'unknown'}")
             path = input_dir / f"{index + 1:03d}-{original_name}"
             size = await _write_upload(upload, path, max(1, settings.max_image_upload_bytes - total_size))
             total_size += size
             if total_size > settings.max_image_upload_bytes:
                 raise HTTPException(status_code=413, detail="Combined image upload is larger than the configured limit.")
-            await asyncio.to_thread(probe_image, path)
+            await asyncio.to_thread(validate_source, path)
             input_paths.append(path)
 
         first_name = Path(input_paths[0].name.split("-", 1)[-1]).stem
@@ -407,7 +417,7 @@ async def create_image_conversion_job(
             output_name, output_path, output_mime = f"{first_name}_merged.pdf", settings.outputs_dir / f"{job_id}.pdf", FORMAT_MIMES["pdf"]
         elif output_format == "docx":
             output_name, output_path, output_mime = f"{first_name}_images.docx", settings.outputs_dir / f"{job_id}.docx", FORMAT_MIMES["docx"]
-        elif len(input_paths) > 1:
+        elif len(input_paths) > 1 or any(path.suffix.lower() in {".pdf", ".docx"} for path in input_paths):
             output_name, output_path, output_mime = f"converted_{output_format}.zip", settings.outputs_dir / f"{job_id}_{output_format}.zip", "application/zip"
         else:
             output_name = f"{first_name}{FORMAT_EXTENSIONS[output_format]}"
@@ -426,7 +436,7 @@ async def create_image_conversion_job(
             def progress(value: float) -> None:
                 control.check()
                 report(value, None)
-            convert_images(input_paths, output_path, output_format, progress)
+            convert_sources(input_paths, output_path, output_format, progress, control)
             return {}
 
         manager.submit(job_id, runner)

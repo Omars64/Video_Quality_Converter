@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: video-quality-converter-api
+    runtime: docker
+    plan: free
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/ping
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: VQI_APP_PASSWORD_HASH
+        sync: false
+      - key: VQI_SESSION_SECRET
+        generateValue: true
+      - key: VQI_CORS_ORIGINS
+        value: https://videoqualityconverter.vercel.app,https://localhost,http://localhost:5173
+      - key: VQI_WORKER_COUNT
+        value: "1"
+      - key: VQI_FFMPEG_THREADS
+        value: "1"
+      - key: VQI_MAX_UPLOAD_BYTES
+        value: "104857600"
+      - key: VQI_MAX_IMAGE_UPLOAD_BYTES
+        value: "26214400"
+      - key: VQI_MAX_REMOTE_BYTES
+        value: "262144000"
+      - key: VQI_MAX_DURATION_SECONDS
+        value: "600"
+      - key: VQI_MAX_IMAGE_PIXELS
+        value: "8000000"
+      - key: VQI_MAX_DOCUMENT_PAGES
+        value: "10"
+      - key: VQI_MAX_IMAGE_FILES
+        value: "10"
+      - key: VQI_DIRECT_DOWNLOAD_CONNECTIONS
+        value: "2"
+      - key: VQI_YOUTUBE_CONCURRENT_FRAGMENTS
+        value: "2"

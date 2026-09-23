@@ -145,7 +145,8 @@ def build_ffmpeg_candidates(
     if engine == "auto":
         engine = hardware.get("recommendedEngine", "cpu")
 
-    common_in = [settings.ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "error", "-nostdin"]
+    common_in = [settings.ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "error", "-nostdin",
+                 "-threads", str(settings.ffmpeg_threads), "-filter_threads", str(settings.ffmpeg_threads)]
     tail = _base_output(audio_codec)
     candidates: list[tuple[str, list[str]]] = []
 
@@ -156,6 +157,7 @@ def build_ffmpeg_candidates(
             "-i", str(input_path),
             "-vf", vf,
             *encoder_args,
+            "-threads", str(settings.ffmpeg_threads),
             *tail,
             str(output_path),
         ]))

@@ -7,6 +7,7 @@ from typing import Callable
 from docx import Document
 from docx.shared import Inches
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps, UnidentifiedImageError
+from .config import settings
 
 
 class ImageValidationError(ValueError):
@@ -39,6 +40,9 @@ FORMAT_MIMES = {
 def _load_image(path: Path) -> Image.Image:
     try:
         image = Image.open(path)
+        if image.width * image.height > settings.max_image_pixels:
+            image.close()
+            raise ImageValidationError("Image is too large for this server. Please use a smaller image.")
         image.load()
         return ImageOps.exif_transpose(image)
     except (UnidentifiedImageError, OSError) as exc:
@@ -78,6 +82,8 @@ def enhance_image(
 
     image = _load_image(input_path)
     try:
+        if image.width * image.height * scale * scale > settings.max_image_pixels:
+            raise ImageValidationError("The selected size exceeds the server limit. Choose a smaller scale.")
         rgb, alpha = _rgb_with_alpha(image)
         on_progress(15)
         if scale > 1:
@@ -99,9 +105,10 @@ def enhance_image(
             rgb = rgb.filter(ImageFilter.UnsharpMask(radius=1.35, percent=120, threshold=3))
         on_progress(78)
 
-        if output_format == "png" and alpha is not None:
-            result = rgb.convert("RGBA")
-            result.putalpha(alpha)
+        if output_format == "png":
+            result = rgb.convert("RGBA") if alpha is not None else rgb
+            if alpha is not None:
+                result.putalpha(alpha)
             result.save(output_path, format="PNG", optimize=True)
         elif output_format == "webp":
             if alpha is not None:
@@ -139,9 +146,14 @@ def _save_image_as(image: Image.Image, output_path: Path, output_format: str) ->
 
 def _images_to_pdf(paths: list[Path], output_path: Path, on_progress: Callable[[float], None]) -> None:
     pages: list[Image.Image] = []
+    total_pixels = 0
     try:
         for index, path in enumerate(paths):
             image = _load_image(path)
+            total_pixels += image.width * image.height
+            if total_pixels > settings.max_image_pixels * 2:
+                image.close()
+                raise ImageValidationError("Combined pages are too large. Convert fewer or smaller pages.")
             page = image.convert("RGB")
             pages.append(page)
             image.close()
@@ -211,7 +223,7 @@ def convert_images(
         _images_to_docx(input_paths, output_path, on_progress)
         return
 
-    if len(input_paths) == 1:
+    if len(input_paths) == 1 and output_path.suffix != ".zip":
         image = _load_image(input_paths[0])
         try:
             _save_image_as(image, output_path, output_format)
