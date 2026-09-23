@@ -1,4 +1,4 @@
-# Media Forge 3.2 validation
+# Media Forge 2.0.1 validation
 
 Validation performed in the build environment.
 

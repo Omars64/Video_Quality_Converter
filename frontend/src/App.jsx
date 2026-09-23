@@ -226,6 +226,6 @@ function App() {
     <div className="tool-stack">{active==='video'&&<VideoTool health={health} refreshQueue={queue.refresh}/>} {active==='photo'&&<PhotoTool refreshQueue={queue.refresh}/>} {active==='convert'&&<ConvertTool refreshQueue={queue.refresh}/>} {active==='youtube'&&<YouTubeTool refreshQueue={queue.refresh}/>} {active==='link'&&<LinkTool refreshQueue={queue.refresh}/>}</div>
     <QueuePanel queue={queue}/>
     <section className="capability-strip"><div><span>01</span><strong>Batch queue</strong><small>Add more jobs while other work is running.</small></div><div><span>02</span><strong>Hardware aware</strong><small>NVENC, CUDA scale, Intel QSV or x264 fallback.</small></div><div><span>03</span><strong>Real controls</strong><small>Pause/resume processes; stop and restart; cancel permanently.</small></div><div><span>04</span><strong>Save As</strong><small>Native browser file picker when supported.</small></div></section>
-    <footer><span>MEDIA FORGE 3.2</span><p>Public media resolvers do not bypass authentication, DRM, paywalls or private-network protections.</p></footer></main>
+    <footer><span>MEDIA FORGE 2.0.1</span><p>Public media resolvers do not bypass authentication, DRM, paywalls or private-network protections.</p></footer></main>
 }
 export default App

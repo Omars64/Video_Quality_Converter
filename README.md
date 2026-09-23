@@ -1,4 +1,4 @@
-# Media Forge 3.2
+# Media Forge 2.0.1
 
 Media Forge is a local-first media toolkit built with **React + Vite**, **FastAPI**, **FFmpeg**, **Pillow**, **python-docx**, and **yt-dlp**.
 
