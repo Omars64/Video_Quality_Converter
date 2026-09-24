@@ -2,7 +2,7 @@
 
 Media Forge is a local-first media toolkit built with **React + Vite**, **FastAPI**, **FFmpeg**, **Pillow**, **python-docx**, and **yt-dlp**.
 
-For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.1.0 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Never put passwords or API keys in the frontend.
+For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.1.1 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Never put passwords or API keys in the frontend.
 
 This package upgrades the original Media Forge 2.0 project with a hardware-aware work queue, multi-item submission, real process controls, faster downloads, YouTube MP4/MP3 modes, and native-Windows Intel Quick Sync support.
 

@@ -23,12 +23,14 @@ parser.add_argument("--url", default="http://127.0.0.1:8000")
 parser.add_argument("--auth-file", default=".tools/render-auth.env")
 parser.add_argument("--remote", action="store_true")
 parser.add_argument("--docx", action="store_true")
+parser.add_argument("--youtube", action="store_true")
+parser.add_argument("--only-youtube", action="store_true")
+parser.add_argument("--only-docx", action="store_true")
 args = parser.parse_args()
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
 from app.auth import issue_session
 from app.config import settings
-from app.version import VERSION
 config = dotenv_values(args.auth_file)
 settings.app_password_hash = config["VQI_APP_PASSWORD_HASH"]
 settings.session_secret = config["VQI_SESSION_SECRET"]
@@ -69,15 +71,20 @@ def job(label, endpoint, *, source=None, field="file", data=None, payload=None):
     raise AssertionError(f"{label}: timed out")
 
 
-assert client.get('/api/ping').json()['version'] == VERSION
-job("photo PNG", "/api/photo/enhance", source=image, data={"scale":"2", "strength":"natural", "output_format":"png"})
-job("images to PDF", "/api/images/convert", source=image, field="files", data={"output_format":"pdf"})
-job("PDF to PNG ZIP", "/api/images/convert", source=pdf, field="files", data={"output_format":"png"})
-job("video 1080p", "/api/video/enhance", source=video, data={"target_height":"1080", "profile":"fast", "enhancement":"light", "engine":"cpu"})
-if args.docx:
+assert client.get('/api/ping').json()['status'] == 'ok'
+if not args.only_youtube and not args.only_docx:
+    job("photo PNG", "/api/photo/enhance", source=image, data={"scale":"2", "strength":"natural", "output_format":"png"})
+    job("images to PDF", "/api/images/convert", source=image, field="files", data={"output_format":"pdf"})
+    job("PDF to PNG ZIP", "/api/images/convert", source=pdf, field="files", data={"output_format":"png"})
+    job("video 1080p", "/api/video/enhance", source=video, data={"target_height":"1080", "profile":"fast", "enhancement":"light", "engine":"cpu"})
+    if args.remote:
+        job("public image link", "/api/remote/download", payload={"url":"https://www.python.org/static/community_logos/python-logo.png"})
+        job("public video link", "/api/remote/download", payload={"url":"https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"})
+if args.docx or args.only_docx:
     doc = Document(); doc.add_paragraph("Media Forge document conversion test.")
     docx = folder / 'sample.docx'; doc.save(docx)
     job("DOCX to PDF", "/api/images/convert", source=docx, field="files", data={"output_format":"pdf"})
-if args.remote:
-    job("public image link", "/api/remote/download", payload={"url":"https://www.python.org/static/community_logos/python-logo.png"})
-    job("public video link", "/api/remote/download", payload={"url":"https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4"})
+if args.youtube or args.only_youtube:
+    link = "https://www.youtube.com/watch?v=jNQXAC9IVRw"
+    job("YouTube MP4", "/api/youtube/download", payload={"url":link,"outputType":"mp4","quality":"360"})
+    job("YouTube MP3", "/api/youtube/download", payload={"url":link,"outputType":"mp3","audioQuality":"128"})

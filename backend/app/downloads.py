@@ -26,6 +26,17 @@ class RemoteDownloadError(ValueError):
     pass
 
 
+def _youtube_failure(log: str) -> str:
+    lower = log.lower()
+    if "sign in to confirm you" in lower and "bot" in lower:
+        return "YouTube is blocking downloads from this processing server right now. Try again later or use a different server in Settings."
+    if "private video" in lower or "sign in" in lower or "login required" in lower:
+        return "This YouTube video requires account access and cannot be downloaded by this server."
+    if "not available in your country" in lower:
+        return "This YouTube video is not available in the server's region."
+    return "YouTube could not provide this video. Check the link and try again later."
+
+
 YOUTUBE_HOSTS = {
     "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
     "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
@@ -111,7 +122,7 @@ def inspect_youtube(url: str) -> dict:
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RemoteDownloadError(f"Could not inspect this YouTube video: {exc}") from exc
     if result.returncode != 0:
-        raise RemoteDownloadError(f"Could not read this YouTube video: {(result.stderr or result.stdout)[-1800:]}")
+        raise RemoteDownloadError(_youtube_failure(result.stderr or result.stdout))
     try:
         data = __import__("json").loads(result.stdout)
     except Exception as exc:
@@ -257,7 +268,7 @@ def download_youtube(
     report(1.0, {"engineActual": "yt-dlp", "outputType": output_type})
     code, log = _run_yt_dlp(command, report, control)
     if code != 0:
-        raise RemoteDownloadError(f"YouTube download failed. {log[-2500:]}")
+        raise RemoteDownloadError(_youtube_failure(log))
     report(96.0, {"engineActual": "yt-dlp + FFmpeg"})
 
     if output_type == "mp3":
