@@ -33,7 +33,7 @@ VQI_CORS_ORIGINS=https://videoqualityconverter.vercel.app,https://localhost
 
 Generate hashes with `app.auth.hash_password()`; use a private ignored dotenv file and never commit its values. Browser sessions last eight hours and are stored per tab. Login is rate limited. All processing routes fail closed if authentication is unconfigured. `/api/ping` is public; downloads use five-minute job-scoped tickets. Optional `VQI_API_KEY` is for trusted tooling only, not required by the app UI.
 
-The non-secret `VITE_API_BASE_URL` build variable must contain the actual Render HTTPS origin for both Vercel and APK builds. A committed `frontend/.env.production` may contain this public URL so CI APK builds use the same backend. Never put passwords or session secrets in any `VITE_` variable. Keep local secrets in ignored files. The optional server override is inside collapsed Settings; ordinary users only enter the app password.
+The non-secret `VITE_API_BASE_URL` is set to `https://video-quality-converter-api.onrender.com` in committed `frontend/.env.production` so both Vercel and CI APK builds use the same backend. Never put passwords or session secrets in any `VITE_` variable. Keep local secrets in ignored files. The optional server override is inside collapsed Settings; ordinary users only enter the app password. To change backend hosts later, change this URL, push, and rebuild the APK.
 
 ## Free hosting limits
 

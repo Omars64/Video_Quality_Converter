@@ -8,6 +8,12 @@ import subprocess
 import time
 
 import httpx
+if os.name == "nt":
+    try:
+        import truststore
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
 from PIL import Image
 from docx import Document
 from dotenv import dotenv_values
