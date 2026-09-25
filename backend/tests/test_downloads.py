@@ -95,3 +95,11 @@ def test_instagram_video_does_not_become_thumbnail(monkeypatch):
     assert downloads._instagram_photo_urls(
         "https://www.instagram.com/reel/AbC123", lambda *_: None, Control(), [],
     ) is None
+
+
+def test_instagram_video_prefers_combined_mp4_with_audio():
+    instagram = downloads._generic_video_format("https://www.instagram.com/reel/AbC123")
+    other = downloads._generic_video_format("https://example.com/video")
+    assert instagram.startswith("b[ext=mp4]/")
+    assert other.startswith("bv*[ext=mp4]+ba[ext=m4a]/")
+    assert downloads._generic_video_format("https://instagram.com.evil.example/reel/AbC123") == other

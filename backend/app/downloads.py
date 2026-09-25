@@ -488,9 +488,17 @@ def _download_direct(probe: dict, output_dir: Path, report, control) -> tuple[Pa
     return destination, destination.name, content_type.split(";", 1)[0] or "application/octet-stream"
 
 
+def _generic_video_format(url: str) -> str:
+    if _is_instagram_post(url):
+        # Instagram can expose VP9 video in an MP4 container. Prefer a single
+        # MP4 that already includes audio for wider player compatibility.
+        return "b[ext=mp4]/bv*[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+    return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+
+
 def _download_generic_video(url: str, output_dir: Path, report, control, errors: list[str]) -> tuple[Path, str, str] | None:
     command = _yt_base(output_dir) + [
-        "--format", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
+        "--format", _generic_video_format(url),
         "--merge-output-format", "mp4",
         url,
     ]
