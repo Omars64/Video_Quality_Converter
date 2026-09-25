@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import mimetypes
 import os
 import re
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import threading
 import time
+import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
@@ -41,6 +43,7 @@ YOUTUBE_HOSTS = {
     "youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com",
     "youtu.be", "www.youtu.be", "youtube-nocookie.com", "www.youtube-nocookie.com",
 }
+INSTAGRAM_HOSTS = {"instagram.com", "www.instagram.com", "m.instagram.com"}
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 MEDIA_PREFIXES = ("video/", "image/", "audio/")
 
@@ -501,6 +504,97 @@ def _download_generic_video(url: str, output_dir: Path, report, control, errors:
     return result, result.name, mimetypes.guess_type(result.name)[0] or "video/mp4"
 
 
+def _is_instagram_post(url: str) -> bool:
+    parsed = urlparse(url)
+    return _normalized_host(parsed.hostname) in INSTAGRAM_HOSTS and bool(
+        re.fullmatch(r"/(?:p|reel|tv)/[A-Za-z0-9_-]+/?", parsed.path)
+    )
+
+
+def _instagram_photo_urls(url: str, report, control, errors: list[str]) -> list[str] | None:
+    """Use yt-dlp's public post metadata; its normal downloader handles videos only."""
+    command = [
+        sys.executable, "-m", "yt_dlp", "--dump-single-json", "--skip-download",
+        "--ignore-no-formats-error", "--no-warnings", "--no-playlist",
+        "--socket-timeout", "25", "--retries", "2", url,
+    ]
+    code, output = _run_yt_dlp(command, report, control)
+    if code != 0:
+        errors.append(output)
+        return None
+    try:
+        data = json.loads(output)
+    except json.JSONDecodeError:
+        errors.append("Instagram returned invalid public post metadata.")
+        return None
+    entries = data.get("entries") if data.get("_type") == "playlist" else [data]
+    if not isinstance(entries, list) or not entries:
+        return None
+    if len(entries) > 20:
+        raise RemoteDownloadError("Instagram posts with more than 20 items are not supported.")
+    # A mixed post still belongs to the video extractor. Never substitute a
+    # video's preview frame for the actual video.
+    if any(not isinstance(entry, dict) or entry.get("formats") or entry.get("duration") for entry in entries):
+        return None
+    urls: list[str] = []
+    for entry in entries:
+        thumbnails = entry.get("thumbnails") or []
+        # yt-dlp's Instagram extractor reverses the site's candidate list;
+        # the final candidate is the largest original rendition.
+        candidates = [item.get("url") for item in reversed(thumbnails) if isinstance(item, dict)]
+        candidate = next((value for value in candidates if isinstance(value, str) and value.startswith("https://")), None)
+        if not candidate:
+            return None
+        validate_public_url(candidate)
+        urls.append(candidate)
+    return urls
+
+
+def _download_instagram_photos(url: str, output_dir: Path, report, control, errors: list[str]) -> tuple[Path, str, str] | None:
+    urls = _instagram_photo_urls(url, report, control, errors)
+    if not urls:
+        return None
+    shortcode = safe_filename(urlparse(url).path.strip("/").split("/")[-1], "post")
+    files: list[Path] = []
+    total_bytes = 0
+    for index, image_url in enumerate(urls, start=1):
+        control.check()
+        probe = _direct_probe(image_url)
+        if not probe or not probe["contentType"].lower().startswith("image/"):
+            raise RemoteDownloadError("Instagram exposed photo metadata, but its image server denied the download.")
+        if probe["size"] and probe["size"] > settings.max_remote_bytes - total_bytes:
+            raise RemoteDownloadError("This Instagram post exceeds the configured download limit.")
+        base = (index - 1) / len(urls)
+        span = 1 / len(urls)
+        path, _, mime = _download_direct(
+            probe, output_dir,
+            lambda progress, patch=None: report(min(94.0, 5.0 + (base + span * progress / 100) * 85), patch),
+            control,
+        )
+        ext = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/avif": ".avif"}.get(mime.lower())
+        if not ext:
+            raise RemoteDownloadError("Instagram returned an unsupported image format.")
+        destination = output_dir / f"instagram-{shortcode}-{index:02d}{ext}"
+        path.rename(destination)
+        total_bytes += destination.stat().st_size
+        if total_bytes > settings.max_remote_bytes:
+            raise RemoteDownloadError("This Instagram post exceeds the configured download limit.")
+        files.append(destination)
+    if len(files) == 1:
+        report(100.0, {"engineActual": "Instagram photo resolver", "downloadEta": "0s"})
+        return files[0], files[0].name, mimetypes.guess_type(files[0].name)[0] or "image/jpeg"
+    archive = output_dir / f"instagram-{shortcode}.zip"
+    report(95.0, {"engineActual": "Instagram photo resolver"})
+    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as bundle:
+        for path in files:
+            control.check()
+            bundle.write(path, arcname=path.name)
+    for path in files:
+        path.unlink()
+    report(100.0, {"downloadEta": "0s"})
+    return archive, archive.name, "application/zip"
+
+
 def _html_media_candidates(url: str) -> list[str]:
     validate_public_url(url)
     timeout = httpx.Timeout(connect=15.0, read=30.0, write=20.0, pool=10.0)
@@ -565,6 +659,10 @@ def download_public_media(
     # yt-dlp supports many public media pages beyond YouTube. It is tried before
     # generic HTML parsing because it understands site manifests and stream merging.
     extractor_errors: list[str] = []
+    if _is_instagram_post(url):
+        result = _download_instagram_photos(url, output_dir, report, control, extractor_errors)
+        if result:
+            return result
     try:
         result = _download_generic_video(url, output_dir, report, control, extractor_errors)
         if result:
@@ -599,6 +697,12 @@ def download_public_media(
         )
     if any(re.search(r"\b429\b|too many requests|rate.limit", error, re.IGNORECASE) for error in extractor_errors):
         raise RemoteDownloadError(f"{host} is rate-limiting this processing server. Try again later.")
+    if _is_instagram_post(url):
+        raise RemoteDownloadError(
+            "Instagram did not expose downloadable public media to this server. "
+            "Check that the post is public; login-only or blocked posts cannot be downloaded here."
+        )
     raise RemoteDownloadError(
-        "No downloadable public image/video was found at this URL. The site may require authentication, block automation, use DRM, or use an unsupported delivery method."
+        "No downloadable public image/video was found at this URL. The site may require login, "
+        "limit automated access, or use a media format this app does not support."
     )

@@ -1,8 +1,8 @@
-# Media Forge 2.2.1
+# Media Forge 2.3.0
 
 Media Forge is a local-first media toolkit built with **React + Vite**, **FastAPI**, **FFmpeg**, **Pillow**, **python-docx**, and **yt-dlp**.
 
-For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.2.1 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Confirm applies color changes and closes Settings. Never put passwords or API keys in the frontend.
+For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.3.0 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Confirm applies color changes and closes Settings. Never put passwords or API keys in the frontend.
 
 This package upgrades the original Media Forge 2.0 project with a hardware-aware work queue, multi-item submission, real process controls, faster downloads, YouTube MP4/MP3 modes, and native-Windows Intel Quick Sync support.
 
@@ -82,6 +82,8 @@ Paste one URL per line; each URL becomes a queue job. The resolver attempts:
 2. Parallel HTTP byte-range download when supported.
 3. yt-dlp generic/site extractor for supported public media pages.
 4. HTML discovery using OpenGraph/Twitter metadata, `<video>`, `<source>`, `<img>`, lazy-src and srcset.
+
+Public Instagram photo posts and photo-only carousels also use the site's media metadata. One photo is saved directly; multi-photo posts are delivered as a ZIP. Reels and video posts continue through the video extractor. Instagram may still deny access from the hosted server, and this app does not bypass login or DRM restrictions.
 
 This is best-effort public-media retrieval. No application can guarantee every website: authentication, DRM, signed/session URLs, CAPTCHAs, anti-bot systems, unsupported streaming mechanisms, or server policy can block downloads. Media Forge does **not** bypass those restrictions.
 

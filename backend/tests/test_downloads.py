@@ -1,4 +1,6 @@
 import socket
+import json
+import zipfile
 
 import pytest
 
@@ -43,3 +45,53 @@ def test_reddit_block_reports_actual_host_failure(monkeypatch, tmp_path):
 
     with pytest.raises(RemoteDownloadError, match="Reddit blocked.*403"):
         downloads.download_public_media("https://www.reddit.com/r/example/s/abc", tmp_path, lambda *_: None, Control())
+
+
+def test_instagram_photo_carousel_becomes_zip(monkeypatch, tmp_path):
+    monkeypatch.setattr(downloads, "validate_public_url", lambda _: None)
+    monkeypatch.setattr(downloads, "_direct_probe", lambda url: None if "instagram.com/p/" in url else {
+        "url": url, "contentType": "image/webp", "filename": "photo.webp", "size": 100, "range": False,
+    })
+    metadata = {"_type": "playlist", "entries": [
+        {"formats": [], "thumbnails": [{"url": f"https://cdn.example/{index}-small.webp"},
+                                      {"url": f"https://cdn.example/{index}-large.webp"}]}
+        for index in (1, 2)
+    ]}
+    monkeypatch.setattr(downloads, "_run_yt_dlp", lambda *_: (0, json.dumps(metadata)))
+    selected = []
+
+    def save_image(probe, output_dir, report, control):
+        selected.append(probe["url"])
+        path = output_dir / f"photo-{len(selected)}.webp"
+        path.write_bytes(b"image")
+        report(100.0, None)
+        return path, path.name, "image/webp"
+
+    monkeypatch.setattr(downloads, "_download_direct", save_image)
+
+    class Control:
+        def check(self):
+            pass
+
+    path, name, mime = downloads.download_public_media(
+        "https://www.instagram.com/p/AbC123", tmp_path, lambda *_: None, Control(),
+    )
+    assert selected == ["https://cdn.example/1-large.webp", "https://cdn.example/2-large.webp"]
+    assert mime == "application/zip"
+    assert path.name == name == "instagram-AbC123.zip"
+    with zipfile.ZipFile(path) as archive:
+        assert archive.namelist() == ["instagram-AbC123-01.webp", "instagram-AbC123-02.webp"]
+
+
+def test_instagram_video_does_not_become_thumbnail(monkeypatch):
+    monkeypatch.setattr(downloads, "validate_public_url", lambda _: None)
+    metadata = {"formats": [{"url": "https://cdn.example/video.mp4"}],
+                "thumbnails": [{"url": "https://cdn.example/preview.webp"}]}
+    monkeypatch.setattr(downloads, "_run_yt_dlp", lambda *_: (0, json.dumps(metadata)))
+    class Control:
+        def check(self):
+            pass
+
+    assert downloads._instagram_photo_urls(
+        "https://www.instagram.com/reel/AbC123", lambda *_: None, Control(), [],
+    ) is None
