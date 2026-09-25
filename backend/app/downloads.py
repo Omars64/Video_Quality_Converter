@@ -496,6 +496,48 @@ def _generic_video_format(url: str) -> str:
     return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
 
 
+def _audio_stream_info(path: Path) -> dict | None:
+    command = [
+        settings.ffprobe_bin, "-v", "error", "-select_streams", "a:0",
+        "-show_entries", "stream=codec_name,profile", "-of", "json", str(path),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, timeout=20, check=False)
+        if result.returncode != 0:
+            raise ValueError("ffprobe failed")
+        streams = json.loads(result.stdout).get("streams") or []
+        return streams[0] if streams else None
+    except (OSError, subprocess.TimeoutExpired, ValueError, json.JSONDecodeError) as exc:
+        raise RemoteDownloadError("Could not inspect the downloaded video's audio stream.") from exc
+
+
+def _ensure_instagram_audio_compatibility(path: Path, report, control) -> None:
+    audio = _audio_stream_info(path)
+    if not audio or (audio.get("codec_name") == "aac" and audio.get("profile") == "LC"):
+        return
+    report(95.0, {"engineActual": "Instagram audio compatibility", "downloadEta": None})
+    temporary = path.with_name(f"{path.stem}.audio-compatible.tmp.mp4")
+    command = [
+        settings.ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "error",
+        "-i", str(path), "-map", "0:v:0", "-map", "0:a:0",
+        "-c:v", "copy", "-c:a", "aac", "-profile:a", "aac_low",
+        "-b:a", "128k", "-movflags", "+faststart", str(temporary),
+    ]
+    proc = run_managed_process(command, control)
+    try:
+        proc.communicate()
+        control.check()
+        if proc.returncode != 0 or not temporary.is_file() or temporary.stat().st_size == 0:
+            raise RemoteDownloadError("Could not make this Instagram video's audio compatible with mobile players.")
+        converted = _audio_stream_info(temporary)
+        if not converted or converted.get("codec_name") != "aac" or converted.get("profile") != "LC":
+            raise RemoteDownloadError("The Instagram audio conversion did not produce AAC-LC audio.")
+        temporary.replace(path)
+    finally:
+        control.unregister_process(proc)
+        temporary.unlink(missing_ok=True)
+
+
 def _download_generic_video(url: str, output_dir: Path, report, control, errors: list[str]) -> tuple[Path, str, str] | None:
     command = _yt_base(output_dir) + [
         "--format", _generic_video_format(url),
@@ -509,6 +551,8 @@ def _download_generic_video(url: str, output_dir: Path, report, control, errors:
     result = _latest_file(output_dir, {".mp4", ".mkv", ".webm", ".mov", ".m4v"})
     if not result:
         return None
+    if _is_instagram_post(url) and result.suffix.lower() == ".mp4":
+        _ensure_instagram_audio_compatibility(result, report, control)
     return result, result.name, mimetypes.guess_type(result.name)[0] or "video/mp4"
 
 

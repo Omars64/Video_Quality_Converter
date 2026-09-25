@@ -103,3 +103,47 @@ def test_instagram_video_prefers_combined_mp4_with_audio():
     assert instagram.startswith("b[ext=mp4]/")
     assert other.startswith("bv*[ext=mp4]+ba[ext=m4a]/")
     assert downloads._generic_video_format("https://instagram.com.evil.example/reel/AbC123") == other
+
+
+def test_instagram_audio_is_converted_to_aac_lc(monkeypatch, tmp_path):
+    source = tmp_path / "reel.mp4"
+    source.write_bytes(b"original")
+    monkeypatch.setattr(downloads, "_audio_stream_info", lambda path: {
+        "codec_name": "aac", "profile": "LC" if ".tmp." in path.name else "HE-AAC",
+    })
+    commands = []
+
+    class Process:
+        returncode = 0
+
+        def communicate(self):
+            temporary = tmp_path / "reel.audio-compatible.tmp.mp4"
+            temporary.write_bytes(b"compatible")
+            return "", ""
+
+    class Control:
+        def check(self):
+            pass
+
+        def unregister_process(self, process):
+            pass
+
+    def run(command, control):
+        commands.append(command)
+        return Process()
+
+    monkeypatch.setattr(downloads, "run_managed_process", run)
+    downloads._ensure_instagram_audio_compatibility(source, lambda *_: None, Control())
+    assert source.read_bytes() == b"compatible"
+    assert not (tmp_path / "reel.audio-compatible.tmp.mp4").exists()
+    assert commands[0][commands[0].index("-c:v") + 1] == "copy"
+    assert commands[0][commands[0].index("-profile:a") + 1] == "aac_low"
+
+
+def test_instagram_aac_lc_audio_is_left_unchanged(monkeypatch, tmp_path):
+    source = tmp_path / "reel.mp4"
+    source.write_bytes(b"already-compatible")
+    monkeypatch.setattr(downloads, "_audio_stream_info", lambda _: {"codec_name": "aac", "profile": "LC"})
+    monkeypatch.setattr(downloads, "run_managed_process", lambda *_: pytest.fail("unneeded transcode"))
+    downloads._ensure_instagram_audio_compatibility(source, lambda *_: None, None)
+    assert source.read_bytes() == b"already-compatible"
