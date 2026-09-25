@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react'
 import { request, upload } from './api.js'
-import { canChooseFolder, chooseFolder, rememberDestination } from './destination.js'
+import { rememberDestination } from './destination.js'
 
 export const bytes = value => value == null ? '' : value < 1024 * 1024 ? `${(value / 1024).toFixed(0)} KB` : `${(value / (1024 * 1024)).toFixed(1)} MB`
 export function Field({ label, children, hint }) {
@@ -8,19 +8,6 @@ export function Field({ label, children, hint }) {
 }
 function Select({ label, value, onChange, options }) {
   return <Field label={label}><select value={value} onChange={e => onChange(e.target.value)}>{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></Field>
-}
-function SaveLocation({ value, onChange }) {
-  return canChooseFolder()
-    ? <div><Select label="Save finished files" value={value} onChange={onChange} options={[["folder", "Choose a folder when starting"], ["later", "Use Save file when finished"]]}/>{value === 'folder' && <p className="hint save-hint">Keep the app open until the result is saved to this folder.</p>}</div>
-    : <p className="hint">Use “Save file” when the result is ready to choose where it goes.</p>
-}
-async function startingFolder(choice) {
-  if (choice !== 'folder' || !canChooseFolder()) return { destination: null, cancelled: false }
-  try { return { destination: await chooseFolder(), cancelled: false } }
-  catch (error) {
-    if (error.name === 'AbortError' || /cancelled|canceled/i.test(error.message)) return { destination: null, cancelled: true }
-    throw error
-  }
 }
 export function Notice({ error, children }) {
   return children ? <p className={`notice ${error ? 'error' : ''}`} role={error ? 'alert' : 'status'}>{children}</p> : null
@@ -49,16 +36,9 @@ export function UploadTool({ type, refresh }) {
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [saveChoice, setSaveChoice] = useState(canChooseFolder() ? 'folder' : 'later')
   const submit = async e => {
     e.preventDefault()
     if (!files.length || busy) return
-    let destination
-    try {
-      const selection = await startingFolder(saveChoice)
-      if (selection.cancelled) return
-      destination = selection.destination
-    } catch (error) { setError(error.message); return }
     setBusy(true); setProgress(0); setError(''); setMessage('')
     const failures = []; let accepted = 0
     const batches = type === 'convert' ? [files] : files.map(file => [file])
@@ -70,7 +50,7 @@ export function UploadTool({ type, refresh }) {
       const endpoint = { video: '/api/video/enhance', photo: '/api/photo/enhance', convert: '/api/images/convert' }[type]
       try {
         const job = await upload(endpoint, form, value => setProgress(Math.round((i + value / 100) / batches.length * 100)))
-        rememberDestination(job.id, destination)
+        rememberDestination(job.id)
         accepted++; refresh()
       } catch (e) { failures.push({ files: batches[i], error: e.message }) }
     }
@@ -92,7 +72,6 @@ export function UploadTool({ type, refresh }) {
       <Select label="Processor" value={engine} onChange={setEngine} options={[["auto", 'Automatic'], ['cpu', 'CPU'], ['nvidia', 'NVIDIA'], ['qsv', 'Intel Quick Sync']]}/>
     </div></details>}
     {type === 'convert' && <p className="hint">Images, PDF, and DOCX. Multiple image outputs download as a ZIP. Documents are converted as pages; DOCX output contains page images.</p>}
-    <SaveLocation value={saveChoice} onChange={setSaveChoice}/>
     <button className="primary" disabled={!files.length || busy}>{busy ? `Uploading · ${progress}%` : type === 'video' ? 'Enhance video' : type === 'photo' ? 'Enhance photos' : 'Convert files'}</button>
     <Notice>{message}</Notice><Notice error>{error}</Notice>
   </form>
@@ -105,19 +84,12 @@ export function YouTubeTool({ refresh }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [saveChoice, setSaveChoice] = useState(canChooseFolder() ? 'folder' : 'later')
   const submit = async e => {
     e.preventDefault(); if (busy) return
-    let destination
-    try {
-      const selection = await startingFolder(saveChoice)
-      if (selection.cancelled) return
-      destination = selection.destination
-    } catch (error) { setError(error.message); return }
     setBusy(true); setError(''); setMessage('')
     try {
       const job = await request('/api/youtube/download', { method: 'POST', body: { url: url.trim(), outputType: format, quality, audioQuality: audio } })
-      rememberDestination(job.id, destination)
+      rememberDestination(job.id)
       setMessage('Download added. Your file will appear below.'); refresh()
     } catch (e) { setError(e.message) } finally { setBusy(false) }
   }
@@ -125,7 +97,7 @@ export function YouTubeTool({ refresh }) {
     <Field label="YouTube link"><input type="url" required placeholder="Paste a video or Shorts link" value={url} onChange={e => setUrl(e.target.value)}/></Field>
     <div className="field-grid"><Select label="Format" value={format} onChange={setFormat} options={[["mp4", 'MP4 video'], ['mp3', 'MP3 audio']]}/>
       {format === 'mp4' ? <Select label="Quality" value={quality} onChange={setQuality} options={[["best", 'Best available'], ['2160', '4K'], ['1440', '1440p'], ['1080', '1080p'], ['720', '720p'], ['480', '480p'], ['360', '360p']]}/> : <Select label="Audio quality" value={audio} onChange={setAudio} options={[[128, '128 kbps'], [192, '192 kbps'], [256, '256 kbps'], [320, '320 kbps']]}/>}
-    </div><SaveLocation value={saveChoice} onChange={setSaveChoice}/><button className="primary" disabled={!url.trim() || busy}>{busy ? 'Adding…' : `Download ${format.toUpperCase()}`}</button>
+    </div><button className="primary" disabled={!url.trim() || busy}>{busy ? 'Adding…' : `Prepare ${format.toUpperCase()}`}</button>
     <Notice>{message}</Notice><Notice error>{error}</Notice>
   </form>
 }
@@ -134,26 +106,18 @@ export function LinkTool({ refresh }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
-  const [saveChoice, setSaveChoice] = useState(canChooseFolder() ? 'folder' : 'later')
   const submit = async e => {
     e.preventDefault(); if (busy) return
     const urls = [...new Set(text.split(/\r?\n/).map(value => value.trim()).filter(Boolean))]
-    let destination
-    try {
-      const selection = await startingFolder(saveChoice)
-      if (selection.cancelled) return
-      destination = selection.destination
-    } catch (error) { setError(error.message); return }
     setBusy(true); setError(''); setMessage(''); const failures = []; let count = 0
     for (const url of urls) {
-      try { const job = await request('/api/remote/download', { method: 'POST', body: { url } }); rememberDestination(job.id, destination); count++; refresh() }
+      try { const job = await request('/api/remote/download', { method: 'POST', body: { url } }); rememberDestination(job.id); count++; refresh() }
       catch (e) { failures.push({ url, error: e.message }) }
     }
     setText(failures.map(item => item.url).join('\n')); setError(failures.map(item => item.error).join(' '))
     setMessage(count ? `${count} ${count === 1 ? 'download added' : 'downloads added'}.` : ''); setBusy(false)
   }
   return <form className="tool-form" onSubmit={submit}><Field label="Photo, video, or social post link" hint="You can paste several links, one per line."><textarea required rows={4} value={text} onChange={e => setText(e.target.value)} placeholder="https://…"/></Field>
-    <SaveLocation value={saveChoice} onChange={setSaveChoice}/>
-    <button className="primary" disabled={!text.trim() || busy}>{busy ? 'Adding…' : 'Download media'}</button><Notice>{message}</Notice><Notice error>{error}</Notice>
+    <button className="primary" disabled={!text.trim() || busy}>{busy ? 'Adding…' : 'Prepare media'}</button><Notice>{message}</Notice><Notice error>{error}</Notice>
   </form>
 }

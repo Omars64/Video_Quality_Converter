@@ -67,3 +67,29 @@ cd ../backend
 ```
 
 `scripts/smoke.py` exercises real HTTP uploads, queued processing, and signed result downloads. It reads signing credentials from an ignored dotenv file, never logs them, and supports `--url`, `--remote` and `--docx`. It creates only small test media in `.tools/smoke`. Run against production only with the owner's authorization. Its assertions complement, not replace, browser login/settings/download checks.
+# Release 2.4.0 — downloads and audio
+
+- Browser: prepare the job, then **Download media** opens a per-file Save As dialog using the final name/type. No folder picker, directory permission, or app confirmation dialog. Firefox/Safari and other browsers without `showSaveFilePicker` use their normal download preferences; a website cannot suppress browser-owned security prompts.
+- Android: new completed jobs save to public **Downloads** while the app is open. Android 10+ uses MediaStore without storage permission. Android 7–9 requires the OS storage permission, but never a folder picker. Transfers are size-checked before publishing.
+- Instagram: prefer explicit video + audio streams, use yt-dlp's final post-merge path, validate audio, convert HE-AAC to AAC-LC, and never hide failed audio processing behind HTML/video-only fallback. Old completed jobs remain old files; submit the link again after upgrading.
+- YouTube: the container includes `yt-dlp-getpot-wpc` 1.1.2, Chromium and Xvfb, matching the reference downloader's token-provider approach. It tries token-capable mobile/web clients, then the default client on eligible extraction failures. It does not import a user's browser cookies or bypass private-account access. Free Render's 512 MB memory and source-side IP restrictions can still limit this route; production success must be tested, not inferred from local results.
+- The Chromium token helper runs as the container's unprivileged app user with Chromium's sandbox disabled because hosted containers may not allow its namespaces. Do not expose Chromium's debugging port publicly.
+
+Production media verification (uses the existing ignored auth file; never prints credentials):
+
+```powershell
+.\backend\.venv\Scripts\python.exe scripts/verify_download.py https://www.instagram.com/reel/DcyzQ5Agr8A
+.\backend\.venv\Scripts\python.exe scripts/verify_download.py 'https://www.youtube.com/watch?v=jNQXAC9IVRw' --youtube mp4
+```
+
+Build an installable debug APK with Java 21 and Android SDK 36:
+
+```powershell
+cd frontend
+npm ci
+npm run android:sync
+cd android
+.\gradlew.bat assembleDebug
+```
+
+Output: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. This is debug-signed for sideloading, not a Play Store release. A production release needs your persistent private signing key; never commit that key or its passwords.

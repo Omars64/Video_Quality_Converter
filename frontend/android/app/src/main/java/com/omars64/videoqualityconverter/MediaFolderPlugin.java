@@ -1,102 +1,113 @@
 package com.omars64.videoqualityconverter;
 
-import android.app.Activity;
-import android.content.Intent;
-import android.database.Cursor;
+import android.Manifest;
+import android.content.ContentValues;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
-import android.provider.DocumentsContract;
-import androidx.activity.result.ActivityResult;
+import android.os.Build;
+import android.os.Environment;
+import android.provider.MediaStore;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
-import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.getcapacitor.annotation.Permission;
+import com.getcapacitor.annotation.PermissionCallback;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.HashSet;
-import java.util.Set;
 
-@CapacitorPlugin(name = "MediaFolder")
+@CapacitorPlugin(name = "MediaFolder", permissions = {
+    @Permission(alias = "legacyStorage", strings = { Manifest.permission.WRITE_EXTERNAL_STORAGE })
+})
 public class MediaFolderPlugin extends Plugin {
     @PluginMethod
-    public void pickDirectory(PluginCall call) {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
-        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-        startActivityForResult(call, intent, "directoryPicked");
-    }
-
-    @ActivityCallback
-    private void directoryPicked(PluginCall call, ActivityResult result) {
-        Intent data = result.getData();
-        if (result.getResultCode() != Activity.RESULT_OK || data == null || data.getData() == null) {
-            call.reject("Folder selection canceled");
+    public void saveToDownloads(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q && getPermissionState("legacyStorage") != PermissionState.GRANTED) {
+            requestPermissionForAlias("legacyStorage", call, "storagePermissionResult");
             return;
         }
-        Uri uri = data.getData();
-        try {
-            int flags = data.getFlags() & (Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
-            getContext().getContentResolver().takePersistableUriPermission(uri, flags);
-            JSObject response = new JSObject();
-            response.put("uri", uri.toString());
-            call.resolve(response);
-        } catch (Exception error) {
-            call.reject("Could not use this folder: " + error.getMessage());
-        }
+        getBridge().execute(() -> save(call));
     }
 
-    @PluginMethod
-    public void saveFile(PluginCall call) {
-        String directoryUri = call.getString("directoryUri");
-        String sourceUri = call.getString("sourceUri");
-        String requestedName = call.getString("name", "download");
-        String mime = call.getString("mime", "application/octet-stream");
-        if (directoryUri == null || sourceUri == null) {
-            call.reject("A save folder and source file are required.");
+    @PermissionCallback
+    private void storagePermissionResult(PluginCall call) {
+        if (getPermissionState("legacyStorage") != PermissionState.GRANTED) {
+            call.reject("Android requires storage permission to save in Downloads on this version.");
             return;
         }
+        saveToDownloads(call);
+    }
+
+    private void save(PluginCall call) {
+        Uri destination = null;
+        File legacyFile = null;
         try {
-            Uri tree = Uri.parse(directoryUri);
-            if (!"content".equals(tree.getScheme()) || !DocumentsContract.isTreeUri(tree)) {
-                throw new IllegalArgumentException("Select a valid device folder.");
-            }
-            File source = new File(Uri.parse(sourceUri).getPath()).getCanonicalFile();
+            String sourceUri = call.getString("sourceUri");
+            if (sourceUri == null) throw new IllegalArgumentException("A completed download is required.");
+            Uri parsed = Uri.parse(sourceUri);
+            if (!"file".equals(parsed.getScheme())) throw new IllegalArgumentException("Invalid cache file.");
+            File source = new File(parsed.getPath()).getCanonicalFile();
             String cacheRoot = getContext().getCacheDir().getCanonicalPath() + File.separator;
-            if (!source.getPath().startsWith(cacheRoot) || !source.isFile()) {
+            if (!source.getPath().startsWith(cacheRoot) || !source.isFile() || source.length() == 0) {
                 throw new IllegalArgumentException("Only a completed app download can be saved.");
             }
-            String name = requestedName.replaceAll("[\\\\/\\p{Cntrl}]", "_");
-            if (name.isBlank()) name = "download";
-            Uri parent = DocumentsContract.buildDocumentUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-            Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getTreeDocumentId(tree));
-            Set<String> existing = new HashSet<>();
-            try (Cursor cursor = getContext().getContentResolver().query(children, new String[] { DocumentsContract.Document.COLUMN_DISPLAY_NAME }, null, null, null)) {
-                if (cursor != null) while (cursor.moveToNext()) existing.add(cursor.getString(0));
+            String name = call.getString("name", "download").replaceAll("[\\\\/\\p{Cntrl}]", "_");
+            if (name.isBlank() || name.equals(".") || name.equals("..")) name = "download";
+            String mime = call.getString("mime", "application/octet-stream");
+            OutputStream output;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
+                values.put(MediaStore.MediaColumns.MIME_TYPE, mime);
+                values.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
+                values.put(MediaStore.MediaColumns.IS_PENDING, 1);
+                destination = getContext().getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (destination == null) throw new IllegalStateException("Downloads storage is unavailable.");
+                output = getContext().getContentResolver().openOutputStream(destination, "w");
+            } else {
+                File directory = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+                if (!directory.isDirectory() && !directory.mkdirs()) throw new IllegalStateException("Downloads storage is unavailable.");
+                int dot = name.lastIndexOf('.');
+                for (int index = 1; index <= 10000; index++) {
+                    String candidate = index == 1 ? name : dot > 0 ? name.substring(0, dot) + "-" + index + name.substring(dot) : name + "-" + index;
+                    File file = new File(directory, candidate);
+                    if (file.createNewFile()) { legacyFile = file; break; }
+                }
+                if (legacyFile == null) throw new IllegalStateException("Too many files with this name.");
+                output = new FileOutputStream(legacyFile);
             }
-            String filename = name;
-            int dot = name.lastIndexOf('.');
-            for (int index = 2; existing.contains(filename) && index < 1002; index++) {
-                filename = dot > 0 ? name.substring(0, dot) + "-" + index + name.substring(dot) : name + "-" + index;
-            }
-            if (existing.contains(filename)) throw new IllegalStateException("Too many files with this name in the selected folder.");
-            Uri destination = DocumentsContract.createDocument(getContext().getContentResolver(), parent, mime, filename);
-            if (destination == null) throw new IllegalStateException("The selected folder refused the file.");
-            try (InputStream in = new FileInputStream(source); OutputStream out = getContext().getContentResolver().openOutputStream(destination, "w")) {
-                if (out == null) throw new IllegalStateException("The selected folder could not be written.");
+            if (output == null) throw new IllegalStateException("Could not write the download.");
+            long copied = 0;
+            try (InputStream input = new FileInputStream(source); OutputStream out = output) {
                 byte[] buffer = new byte[256 * 1024];
                 int count;
-                while ((count = in.read(buffer)) != -1) out.write(buffer, 0, count);
-            } catch (Exception error) {
-                DocumentsContract.deleteDocument(getContext().getContentResolver(), destination);
-                throw error;
+                while ((count = input.read(buffer)) != -1) { out.write(buffer, 0, count); copied += count; }
             }
-            JSObject response = new JSObject();
-            response.put("name", filename);
-            call.resolve(response);
+            if (copied != source.length()) throw new IllegalStateException("The saved file is incomplete.");
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.MediaColumns.IS_PENDING, 0);
+                if (getContext().getContentResolver().update(destination, values, null, null) != 1) {
+                    throw new IllegalStateException("Could not publish the completed download.");
+                }
+            } else {
+                MediaScannerConnection.scanFile(getContext(), new String[] { legacyFile.getPath() }, new String[] { mime }, null);
+            }
+            JSObject result = new JSObject();
+            result.put("name", name);
+            result.put("bytes", copied);
+            call.resolve(result);
         } catch (Exception error) {
-            call.reject("Could not save to the selected folder: " + error.getMessage());
+            if (destination != null) {
+                try { getContext().getContentResolver().delete(destination, null, null); } catch (Exception ignored) { }
+            }
+            if (legacyFile != null) legacyFile.delete();
+            call.reject("Could not save to Downloads: " + error.getMessage());
         }
     }
 }

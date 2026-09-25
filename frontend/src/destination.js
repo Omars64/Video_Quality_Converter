@@ -1,52 +1,43 @@
-import { Capacitor, registerPlugin } from '@capacitor/core'
-
-const MediaFolder = registerPlugin('MediaFolder')
+import { Capacitor } from '@capacitor/core'
 const destinations = new Map()
 const saved = new Set()
-const directoryLocks = new WeakMap()
-
-export function canChooseFolder() {
-  return Capacitor.isNativePlatform() || typeof window.showDirectoryPicker === 'function'
-}
-
-export async function chooseFolder() {
-  if (Capacitor.isNativePlatform()) {
-    const { uri } = await MediaFolder.pickDirectory()
-    return { kind: 'android', uri }
-  }
-  return { kind: 'web', handle: await window.showDirectoryPicker({ mode: 'readwrite' }) }
-}
-
-export function rememberDestination(jobId, destination) {
-  if (jobId && destination) destinations.set(jobId, destination)
+export function rememberDestination(jobId) {
+  if (jobId && Capacitor.isNativePlatform()) destinations.set(jobId, { kind: 'android-downloads' })
 }
 export function destinationFor(jobId) { return destinations.get(jobId) }
 export function wasSaved(jobId) { return saved.has(jobId) }
 export function markSaved(jobId) { saved.add(jobId) }
 
-export function uniqueName(name, index) {
-  if (index === 1) return name
-  const dot = name.lastIndexOf('.')
-  return dot > 0 ? `${name.slice(0, dot)}-${index}${name.slice(dot)}` : `${name}-${index}`
+// Called directly from the Download button, before any network await.
+export async function pickSaveFile(name) {
+  if (Capacitor.isNativePlatform() || typeof window.showSaveFilePicker !== 'function') return null
+  return window.showSaveFilePicker({ suggestedName: name || 'download' })
 }
 
-export async function createUniqueWebFile(directory, name) {
-  const prior = directoryLocks.get(directory) || Promise.resolve()
-  let release
-  const done = new Promise(resolve => { release = resolve })
-  directoryLocks.set(directory, prior.then(() => done))
-  await prior
+export async function writeDownload(handle, response, expectedSize) {
+  if (!response.ok) throw new Error('The download failed. Please try again.')
+  const writable = await handle.createWritable()
+  let received = 0
   try {
-    for (let index = 1; index <= 1000; index++) {
-      const candidate = uniqueName(name, index)
-      try { await directory.getFileHandle(candidate) }
-      catch (error) {
-        if (error.name === 'NotFoundError') return directory.getFileHandle(candidate, { create: true })
-        throw error
-      }
+    if (response.body) {
+      const reader = response.body.getReader()
+      try {
+        while (true) {
+          const { value, done } = await reader.read()
+          if (done) break
+          received += value.byteLength
+          await writable.write(value)
+        }
+      } finally { await reader.cancel(); reader.releaseLock() }
+    } else {
+      const blob = await response.blob()
+      received = blob.size
+      await writable.write(blob)
     }
-    throw new Error('The selected folder has too many files with this name.')
-  } finally {
-    release()
+    if (expectedSize != null && received !== expectedSize) throw new Error('The file transfer was incomplete. Please download again.')
+    await writable.close()
+  } catch (error) {
+    await writable.abort().catch(() => {})
+    throw error
   }
 }

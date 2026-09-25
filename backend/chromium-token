@@ -1,0 +1,4 @@
+#!/bin/sh
+# Chromium is launched only by the YouTube token provider, as the unprivileged
+# app user inside the container. Render does not provide Chrome's user namespaces.
+exec /usr/bin/chromium --no-sandbox --disable-dev-shm-usage --disable-gpu "$@"

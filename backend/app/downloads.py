@@ -119,9 +119,11 @@ def inspect_youtube(url: str) -> dict:
     ]
     if shutil.which("deno"):
         command += ["--js-runtimes", "deno"]
-    command.append(url)
     try:
-        result = subprocess.run(command, capture_output=True, text=True, timeout=75, check=False)
+        for options in _youtube_client_options():
+            result = subprocess.run(command + options + [url], capture_output=True, text=True, timeout=120, check=False)
+            if result.returncode == 0 or not _youtube_retryable(result.stderr or result.stdout):
+                break
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RemoteDownloadError(f"Could not inspect this YouTube video: {exc}") from exc
     if result.returncode != 0:
@@ -176,6 +178,7 @@ def _yt_base(output_dir: Path) -> list[str]:
         "--paths", str(output_dir),
         "--output", "%(title).120B [%(id)s].%(ext)s",
         "--restrict-filenames",
+        "--no-simulate", "--progress", "--print", "after_move:MFOUTPUT:%(filepath)j",
     ]
     if shutil.which("deno"):
         args += ["--js-runtimes", "deno"]
@@ -222,6 +225,38 @@ def _latest_file(output_dir: Path, suffixes: set[str]) -> Path | None:
     return max(candidates, key=lambda p: p.stat().st_mtime) if candidates else None
 
 
+def _finished_download(output_dir: Path, log: str) -> Path:
+    """Use yt-dlp's post-merge path, never an arbitrary intermediate stream."""
+    for line in reversed(log.splitlines()):
+        if not line.startswith("MFOUTPUT:"):
+            continue
+        try:
+            path = Path(json.loads(line[len("MFOUTPUT:"):])).resolve()
+            if path.parent != output_dir.resolve() or not path.is_file() or not path.stat().st_size:
+                break
+            return path
+        except (ValueError, TypeError, OSError):
+            break
+    raise RemoteDownloadError("The downloader did not produce a verified final media file. Please retry.")
+
+
+def _youtube_client_options() -> list[list[str]]:
+    # Container includes Chromium + a virtual display for the reference app's
+    # WPC token provider. Local installs without Chromium keep yt-dlp defaults.
+    browser = shutil.which("chromium-token") or shutil.which("chromium")
+    if browser:
+        return [["--extractor-args", "youtube:player_client=mweb,web_safari",
+                 "--extractor-args", f"youtubepot-wpc:browser_path={browser}"], []]
+    return [[]]
+
+
+def _youtube_retryable(log: str) -> bool:
+    return any(value in log.lower() for value in (
+        "sign in to confirm", "requested format is not available", "no video formats",
+        "unable to extract", "http error 403", "po token",
+    ))
+
+
 def _write_mp3_metadata(path: Path, title: str | None, album: str | None, control: JobControl) -> None:
     if not title and not album:
         return
@@ -266,24 +301,29 @@ def download_youtube(
         command += ["--format", _youtube_format_selector(quality), "--merge-output-format", "mp4"]
     else:
         raise RemoteDownloadError("YouTube output must be MP4 or MP3.")
-    command.append(url)
-
     report(1.0, {"engineActual": "yt-dlp", "outputType": output_type})
-    code, log = _run_yt_dlp(command, report, control)
+    for index, options in enumerate(_youtube_client_options()):
+        control.check()
+        report(1.0, {"engineActual": "YouTube token provider" if options else "YouTube default client", "downloadAttempt": index + 1})
+        code, log = _run_yt_dlp(command + options + [url], report, control)
+        if code == 0 or not _youtube_retryable(log):
+            break
     if code != 0:
         raise RemoteDownloadError(_youtube_failure(log))
     report(96.0, {"engineActual": "yt-dlp + FFmpeg"})
 
     if output_type == "mp3":
-        result = _latest_file(output_dir, {".mp3"})
-        if not result:
+        result = _finished_download(output_dir, log)
+        if result.suffix.lower() != ".mp3":
             raise RemoteDownloadError("YouTube finished but no MP3 file was produced.")
         _write_mp3_metadata(result, title, album, control)
         mime = "audio/mpeg"
     else:
-        result = _latest_file(output_dir, {".mp4", ".mkv", ".webm", ".mov", ".m4v"})
-        if not result:
+        result = _finished_download(output_dir, log)
+        if result.suffix.lower() not in {".mp4", ".mkv", ".webm", ".mov", ".m4v"}:
             raise RemoteDownloadError("YouTube finished but no video file was produced.")
+        if not _audio_stream_info(result):
+            raise RemoteDownloadError("YouTube returned a video without an audio track; the incomplete result was not published.")
         mime = mimetypes.guess_type(result.name)[0] or "video/mp4"
     report(100.0, {"downloadEta": "0s"})
     return result, result.name, mime
@@ -490,9 +530,9 @@ def _download_direct(probe: dict, output_dir: Path, report, control) -> tuple[Pa
 
 def _generic_video_format(url: str) -> str:
     if _is_instagram_post(url):
-        # Instagram can expose VP9 video in an MP4 container. Prefer a single
-        # MP4 that already includes audio for wider player compatibility.
-        return "b[ext=mp4]/bv*[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/bv*[ext=mp4]+ba[ext=m4a]/bv*+ba/b"
+        # Some progressive formats have UNKNOWN audio metadata but contain no
+        # audio. Prefer explicitly separate video + audio, then validate bytes.
+        return "bv[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/bv[ext=mp4]+ba[ext=m4a]/bv+ba/b[ext=mp4]"
     return "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
 
 
@@ -513,7 +553,10 @@ def _audio_stream_info(path: Path) -> dict | None:
 
 def _ensure_instagram_audio_compatibility(path: Path, report, control) -> None:
     audio = _audio_stream_info(path)
-    if not audio or (audio.get("codec_name") == "aac" and audio.get("profile") == "LC"):
+    if not audio:
+        raise RemoteDownloadError("Instagram supplied no audio track. The video-only result was not published; try the original post link.")
+    if audio.get("codec_name") == "aac" and audio.get("profile") == "LC":
+        report(98.0, {"audioVerified": True, "audioCodec": "aac", "audioProfile": "LC"})
         return
     report(95.0, {"engineActual": "Instagram audio compatibility", "downloadEta": None})
     temporary = path.with_name(f"{path.stem}.audio-compatible.tmp.mp4")
@@ -521,7 +564,7 @@ def _ensure_instagram_audio_compatibility(path: Path, report, control) -> None:
         settings.ffmpeg_bin, "-y", "-hide_banner", "-loglevel", "error",
         "-i", str(path), "-map", "0:v:0", "-map", "0:a:0",
         "-c:v", "copy", "-c:a", "aac", "-profile:a", "aac_low",
-        "-b:a", "128k", "-movflags", "+faststart", str(temporary),
+        "-b:a", "128k", "-disposition:a:0", "default", "-movflags", "+faststart", str(temporary),
     ]
     proc = run_managed_process(command, control)
     try:
@@ -533,6 +576,7 @@ def _ensure_instagram_audio_compatibility(path: Path, report, control) -> None:
         if not converted or converted.get("codec_name") != "aac" or converted.get("profile") != "LC":
             raise RemoteDownloadError("The Instagram audio conversion did not produce AAC-LC audio.")
         temporary.replace(path)
+        report(98.0, {"audioVerified": True, "audioCodec": "aac", "audioProfile": "LC"})
     finally:
         control.unregister_process(proc)
         temporary.unlink(missing_ok=True)
@@ -548,9 +592,7 @@ def _download_generic_video(url: str, output_dir: Path, report, control, errors:
     if code != 0:
         errors.append(log)
         return None
-    result = _latest_file(output_dir, {".mp4", ".mkv", ".webm", ".mov", ".m4v"})
-    if not result:
-        return None
+    result = _finished_download(output_dir, log)
     if _is_instagram_post(url) and result.suffix.lower() == ".mp4":
         _ensure_instagram_audio_compatibility(result, report, control)
     return result, result.name, mimetypes.guess_type(result.name)[0] or "video/mp4"
@@ -715,16 +757,15 @@ def download_public_media(
         result = _download_instagram_photos(url, output_dir, report, control, extractor_errors)
         if result:
             return result
-    try:
-        result = _download_generic_video(url, output_dir, report, control, extractor_errors)
-        if result:
-            report(100.0, {"engineActual": "yt-dlp site extractor"})
-            return result
-    except Exception:
-        control.check()
+    result = _download_generic_video(url, output_dir, report, control, extractor_errors)
+    if result:
+        report(100.0, {"engineActual": "yt-dlp site extractor"})
+        return result
 
     report(5.0, {"engineActual": "HTML media discovery"})
-    for candidate in _html_media_candidates(url):
+    # Instagram og:video often points to video-only media; og:image is merely a
+    # poster frame. Neither is a safe fallback for a failed post extractor.
+    for candidate in ([] if _is_instagram_post(url) else _html_media_candidates(url)):
         control.check()
         try:
             probe = _direct_probe(candidate)

@@ -97,10 +97,10 @@ def test_instagram_video_does_not_become_thumbnail(monkeypatch):
     ) is None
 
 
-def test_instagram_video_prefers_combined_mp4_with_audio():
+def test_instagram_video_prefers_explicit_audio_merge():
     instagram = downloads._generic_video_format("https://www.instagram.com/reel/AbC123")
     other = downloads._generic_video_format("https://example.com/video")
-    assert instagram.startswith("b[ext=mp4]/")
+    assert instagram.startswith("bv[vcodec^=avc1][ext=mp4]+ba[ext=m4a]/")
     assert other.startswith("bv*[ext=mp4]+ba[ext=m4a]/")
     assert downloads._generic_video_format("https://instagram.com.evil.example/reel/AbC123") == other
 
@@ -147,3 +147,43 @@ def test_instagram_aac_lc_audio_is_left_unchanged(monkeypatch, tmp_path):
     monkeypatch.setattr(downloads, "run_managed_process", lambda *_: pytest.fail("unneeded transcode"))
     downloads._ensure_instagram_audio_compatibility(source, lambda *_: None, None)
     assert source.read_bytes() == b"already-compatible"
+
+
+def test_missing_audio_is_not_treated_as_compatible(monkeypatch, tmp_path):
+    monkeypatch.setattr(downloads, "_audio_stream_info", lambda _: None)
+    with pytest.raises(RemoteDownloadError, match="no audio track"):
+        downloads._ensure_instagram_audio_compatibility(tmp_path / "reel.mp4", lambda *_: None, None)
+
+
+def test_audio_failure_cannot_fall_back_to_video_only_html(monkeypatch, tmp_path):
+    monkeypatch.setattr(downloads, "validate_public_url", lambda _: None)
+    monkeypatch.setattr(downloads, "_direct_probe", lambda _: None)
+    monkeypatch.setattr(downloads, "_download_instagram_photos", lambda *_: None)
+    def fail(*_):
+        raise RemoteDownloadError("audio conversion failed")
+    monkeypatch.setattr(downloads, "_download_generic_video", fail)
+    monkeypatch.setattr(downloads, "_html_media_candidates", lambda _: pytest.fail("unsafe fallback"))
+    with pytest.raises(RemoteDownloadError, match="audio conversion failed"):
+        downloads.download_public_media("https://www.instagram.com/reel/test", tmp_path, lambda *_: None, None)
+
+
+def test_final_output_path_ignores_newer_intermediate(monkeypatch, tmp_path):
+    final = tmp_path / "final.mp4"
+    final.write_bytes(b"merged")
+    (tmp_path / "final.f123.mp4").write_bytes(b"video-only")
+    log = "MFOUTPUT:" + json.dumps(str(final))
+    assert downloads._finished_download(tmp_path, log) == final
+    with pytest.raises(RemoteDownloadError, match="verified final"):
+        downloads._finished_download(tmp_path, "no final path")
+    with pytest.raises(RemoteDownloadError, match="verified final"):
+        downloads._finished_download(tmp_path, "MFOUTPUT:" + json.dumps(str(tmp_path.parent / "outside.mp4")))
+
+
+def test_youtube_provider_has_bounded_client_fallback(monkeypatch):
+    monkeypatch.setattr(downloads.shutil, "which", lambda name: "/usr/local/bin/chromium-token" if name == "chromium-token" else None)
+    attempts = downloads._youtube_client_options()
+    assert len(attempts) == 2
+    assert "youtube:player_client=mweb,web_safari" in attempts[0]
+    assert attempts[1] == []
+    assert downloads._youtube_retryable("ERROR: Sign in to confirm you're not a bot")
+    assert not downloads._youtube_retryable("Private video")
