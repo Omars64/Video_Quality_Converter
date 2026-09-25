@@ -66,7 +66,7 @@ function JobRow({ job, busy, action, autoSaving, autoError }) {
     sample.current = updateProgressSample(sample.current, Number(job.progress) || 0, Date.now())
     setMeasuredEta(sample.current.rate ? (100 - job.progress) / sample.current.rate : null)
   }, [job.status, job.progress])
-  const sourceEta = parseDownloadEta(job.details?.downloadEtaSeconds ?? job.details?.downloadEta)
+  const sourceEta = parseDownloadEta(job.details?.etaSeconds ?? job.details?.downloadEtaSeconds ?? job.details?.downloadEta)
   const eta = sourceEta ?? measuredEta
   const actions = {
     queued: [['pause', 'Pause'], ['cancel', 'Cancel']], processing: [['pause', 'Pause'], ['stop', 'Stop'], ['cancel', 'Cancel']],
