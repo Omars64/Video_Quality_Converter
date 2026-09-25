@@ -37,23 +37,25 @@ function SignIn({ onSignIn }) {
 function Settings({ theme, setTheme }) {
   const [server, setServer] = useState(getApiBaseUrl)
   const [error, setError] = useState('')
+  const [draftTheme, setDraftTheme] = useState(theme)
+  const [appearanceOpen, setAppearanceOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const connect = e => {
     e.preventDefault()
     try { saveApiBaseUrl(server) } catch (e) { setError(e.message) }
   }
-  return <details className="settings"><summary>Settings</summary><div className="settings-panel">
+  return <details className="settings" open={settingsOpen} onToggle={e => setSettingsOpen(e.currentTarget.open)}><summary>Settings</summary><div className="settings-panel">
     <h2>Settings</h2>
-    <details className="setting-group"><summary>Appearance</summary><div className="settings-content">
-      <Field label="Accent color"><input type="color" value={theme.accent} onInput={e => { const accent = e.currentTarget.value; setTheme(t => ({ ...t, accent })) }}/></Field>
-      <Field label="Background color"><input type="color" value={theme.background} onInput={e => { const background = e.currentTarget.value; setTheme(t => ({ ...t, background })) }}/></Field>
-      <button type="button" onClick={() => setTheme(DEFAULT_THEME)}>Reset colors</button>
+    <details className="setting-group" open={appearanceOpen} onToggle={e => { setAppearanceOpen(e.currentTarget.open); if (e.currentTarget.open) setDraftTheme(theme) }}><summary>Appearance</summary><div className="settings-content">
+      <Field label="Accent color"><input type="color" value={draftTheme.accent} onInput={e => setDraftTheme(t => ({ ...t, accent: e.currentTarget.value }))}/></Field>
+      <Field label="Background color"><input type="color" value={draftTheme.background} onInput={e => setDraftTheme(t => ({ ...t, background: e.currentTarget.value }))}/></Field>
+      <div className="settings-actions"><button type="button" onClick={() => setDraftTheme(DEFAULT_THEME)}>Reset colors</button><button type="button" className="primary" onClick={() => { document.activeElement?.blur(); setTheme(draftTheme); setAppearanceOpen(false); setSettingsOpen(false) }}>Confirm</button></div>
     </div></details>
     <details className="setting-group"><summary>Advanced connection</summary><form className="settings-content" onSubmit={connect}>
       <p>The app connects automatically. Change this only to use your own server.</p>
       <Field label="Custom server URL" hint="Leave blank to use the built-in connection."><input type="url" placeholder="https://your-server.example.com" value={server} onChange={e => setServer(e.target.value)}/></Field>
       <button type="submit">Save and sign in again</button><Notice error>{error}</Notice>
     </form></details>
-    <button className="signout" onClick={clearSession}>Sign out</button>
   </div></details>
 }
 
@@ -61,7 +63,7 @@ function Workspace({ theme, setTheme }) {
   const [active, setActive] = useState('video')
   const queue = useQueue()
   const tool = TOOLS.find(item => item[0] === active)
-  return <div className="app-shell"><header className="topbar"><a className="brand" href="#" aria-label="Media Forge home">MEDIA <strong>FORGE</strong></a><Settings theme={theme} setTheme={setTheme}/></header>
+  return <div className="app-shell"><header className="topbar"><a className="brand" href="#" aria-label="Media Forge home">MEDIA <strong>FORGE</strong></a><div className="header-actions"><Settings theme={theme} setTheme={setTheme}/><button type="button" onClick={clearSession}>Sign out</button></div></header>
     <main><div className="intro"><h1>Your media, made better.</h1><p>Choose a tool. Add your files or a link. Save the result.</p></div>
       <nav className="tool-nav" aria-label="Media tools">{TOOLS.map(([id, label]) => <button key={id} aria-pressed={active === id} onClick={() => setActive(id)}>{label}</button>)}</nav>
       <section className="tool-panel" aria-labelledby="tool-title"><h2 id="tool-title">{tool[1]}</h2><p className="tool-description">{tool[2]}</p>

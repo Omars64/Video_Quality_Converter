@@ -25,6 +25,8 @@ p, small { line-height: 1.6; }
 a { color: inherit; }
 .app-shell { max-width: 960px; margin: auto; padding: 0 24px; min-height: 100svh; display: flex; flex-direction: column; }
 .topbar { display: flex; align-items: center; justify-content: space-between; min-height: 84px; border-bottom: 1px solid var(--border); gap: 18px; }
+.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions > button { font-size: 13px; white-space: nowrap; }
 .brand { font-size: 17px; letter-spacing: .1em; text-decoration: none; white-space: nowrap; }
 .brand strong { color: var(--accent); }
 .intro { padding: 38px 0 24px; }
@@ -39,6 +41,7 @@ a { color: inherit; }
 .field { display: flex; flex-direction: column; gap: 9px; font-size: 14px; min-width: 0; }
 .field > span { font-weight: 600; }
 .field small, .hint { color: var(--muted); font-size: 12px; margin: 0; }
+.save-hint { margin-top: 7px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 18px; }
 .primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 700; }
 .primary:hover { border-color: var(--text); }
@@ -71,6 +74,7 @@ summary { font-size: 13px; font-weight: 550; min-height: 38px; align-content: ce
 progress { display: block; width: 100%; height: 5px; margin: 16px 0 12px; border: 0; border-radius: 10px; overflow: hidden; background: var(--border); accent-color: var(--accent); }
 progress::-webkit-progress-bar { background: var(--border); }
 progress::-webkit-progress-value { background: var(--accent); }
+.job-eta { display: block; min-height: 19px; margin: -3px 0 10px; color: var(--muted); font-size: 12px; }
 .job-bottom { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
 .job-bottom small { color: var(--muted); font-size: 12px; }
 .job-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
@@ -83,8 +87,8 @@ progress::-webkit-progress-value { background: var(--accent); }
 .setting-group { padding: 5px 0; border-top: 1px solid var(--border); }
 .settings-content { display: grid; gap: 15px; padding: 10px 0 15px; }
 .settings-content p { color: var(--muted); font-size: 12px; margin: 0; }
-.settings-content button, .signout { font-size: 12px; }
-.signout { width: 100%; margin-top: 15px; }
+.settings-content button { font-size: 12px; }
+.settings-actions { display: flex; justify-content: space-between; gap: 10px; }
 footer { margin-top: auto; padding: 24px 0; text-align: center; color: var(--muted); font-size: 11px; letter-spacing: .09em; }
 footer span { margin-left: 5px; font-variant-numeric: tabular-nums; }
 .login-shell { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px; }
@@ -98,6 +102,8 @@ footer span { margin-left: 5px; font-variant-numeric: tabular-nums; }
   .app-shell { padding: 0 16px; }
   .topbar { min-height: 72px; }
   .brand { font-size: 15px; }
+  .header-actions { gap: 6px; }
+  .header-actions > button, .settings > summary { padding: 8px 10px; font-size: 12px; }
   .intro { padding: 28px 0 20px; }
   .intro p { font-size: 14px; }
   .tool-panel { padding: 21px 18px; }

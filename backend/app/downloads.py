@@ -384,7 +384,10 @@ def _download_single(
                     if downloaded > settings.max_remote_bytes:
                         raise RemoteDownloadError("The remote file exceeded the configured download limit.")
                     elapsed = max(0.01, time.monotonic() - started)
-                    patch = {"downloadSpeed": f"{downloaded / elapsed / 1024 / 1024:.1f} MiB/s"}
+                    rate = downloaded / elapsed
+                    patch = {"downloadSpeed": f"{rate / 1024 / 1024:.1f} MiB/s"}
+                    if total and rate > 0:
+                        patch["downloadEtaSeconds"] = max(0, round((total - downloaded) / rate))
                     report(min(99.0, downloaded / total * 100) if total else 10.0, patch)
 
 
@@ -432,7 +435,11 @@ def _download_parallel(
                         with lock:
                             downloaded += len(data)
                             elapsed = max(0.01, time.monotonic() - started)
-                            report(min(99.0, downloaded / total * 100), {"downloadSpeed": f"{downloaded / elapsed / 1024 / 1024:.1f} MiB/s"})
+                            rate = downloaded / elapsed
+                            report(min(99.0, downloaded / total * 100), {
+                                "downloadSpeed": f"{rate / 1024 / 1024:.1f} MiB/s",
+                                "downloadEtaSeconds": max(0, round((total - downloaded) / rate)),
+                            })
         if part_bytes != end - start + 1:
             raise RemoteDownloadError("Server sent an incomplete byte range.")
 
@@ -478,14 +485,15 @@ def _download_direct(probe: dict, output_dir: Path, report, control) -> tuple[Pa
     return destination, destination.name, content_type.split(";", 1)[0] or "application/octet-stream"
 
 
-def _download_generic_video(url: str, output_dir: Path, report, control) -> tuple[Path, str, str] | None:
+def _download_generic_video(url: str, output_dir: Path, report, control, errors: list[str]) -> tuple[Path, str, str] | None:
     command = _yt_base(output_dir) + [
         "--format", "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b",
         "--merge-output-format", "mp4",
         url,
     ]
-    code, _ = _run_yt_dlp(command, report, control)
+    code, log = _run_yt_dlp(command, report, control)
     if code != 0:
+        errors.append(log)
         return None
     result = _latest_file(output_dir, {".mp4", ".mkv", ".webm", ".mov", ".m4v"})
     if not result:
@@ -556,8 +564,9 @@ def download_public_media(
 
     # yt-dlp supports many public media pages beyond YouTube. It is tried before
     # generic HTML parsing because it understands site manifests and stream merging.
+    extractor_errors: list[str] = []
     try:
-        result = _download_generic_video(url, output_dir, report, control)
+        result = _download_generic_video(url, output_dir, report, control, extractor_errors)
         if result:
             report(100.0, {"engineActual": "yt-dlp site extractor"})
             return result
@@ -574,6 +583,22 @@ def download_public_media(
         except RemoteDownloadError:
             continue
 
+    host = _normalized_host(urlparse(url).hostname)
+    blocked = any(
+        re.search(r"\b403\b|\bblocked\b", error, re.IGNORECASE) for error in extractor_errors
+    )
+    if blocked and (host == "reddit.com" or host.endswith(".reddit.com")):
+        raise RemoteDownloadError(
+            "Reddit blocked automated access to this post from the processing server (HTTP 403). "
+            "Try a direct public image/video URL if one is available."
+        )
+    if blocked:
+        raise RemoteDownloadError(
+            f"{host} blocked automated access from this processing server (HTTP 403). "
+            "Try a direct public image/video URL if one is available."
+        )
+    if any(re.search(r"\b429\b|too many requests|rate.limit", error, re.IGNORECASE) for error in extractor_errors):
+        raise RemoteDownloadError(f"{host} is rate-limiting this processing server. Try again later.")
     raise RemoteDownloadError(
         "No downloadable public image/video was found at this URL. The site may require authentication, block automation, use DRM, or use an unsupported delivery method."
     )

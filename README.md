@@ -1,8 +1,8 @@
-# Media Forge 2.0.1
+# Media Forge 2.2.0
 
 Media Forge is a local-first media toolkit built with **React + Vite**, **FastAPI**, **FFmpeg**, **Pillow**, **python-docx**, and **yt-dlp**.
 
-For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.1.1 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Never put passwords or API keys in the frontend.
+For Vercel, free Render hosting, automatic GitHub deployments, and Android setup, see [DEPLOYMENT.md](DEPLOYMENT.md). Version 2.2.0 uses password-only sign-in, a built-in backend connection, and collapsed appearance/advanced settings. Confirm applies color changes and closes Settings. Never put passwords or API keys in the frontend.
 
 This package upgrades the original Media Forge 2.0 project with a hardware-aware work queue, multi-item submission, real process controls, faster downloads, YouTube MP4/MP3 modes, and native-Windows Intel Quick Sync support.
 
@@ -87,12 +87,13 @@ This is best-effort public-media retrieval. No application can guarantee every w
 
 For server safety it also rejects localhost/private/link-local/reserved network destinations rather than turning a public deployment into an internal-network proxy.
 
-### Save As
-Completed queue rows have **Save As**.
+### Save location and progress
+Each tool can ask for a destination folder when a job starts. Finished files are saved there automatically while the app remains open; the queue also retains **Save file** for manual recovery. Progress rows show a measured ETA when enough progress data exists, and say when one cannot yet be calculated.
 
-- Chrome/Edge and other browsers supporting `showSaveFilePicker()` display the native destination/file-name picker.
+- Chrome/Edge and other browsers supporting `showDirectoryPicker()` let you choose a folder at the start. Android uses its native folder picker. Existing files are not overwritten.
+- Chrome/Edge and other browsers supporting `showSaveFilePicker()` also display a destination/file-name picker for manual saves.
 - The response body is streamed into the selected file instead of loading a multi-GB result into JavaScript memory.
-- Other browsers fall back to their normal download behavior.
+- Browsers without these file-system APIs fall back to their normal download behavior and cannot choose a folder at job start.
 
 ---
 

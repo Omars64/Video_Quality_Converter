@@ -39,7 +39,7 @@ The non-secret `VITE_API_BASE_URL` is set to `https://video-quality-converter-ap
 
 Render Free has 512 MB RAM and 0.1 CPU, spins down after inactivity, and has no persistent disk. Cold start can take about a minute. Files and job history can disappear after a restart or deployment; save results promptly. The configured limits are 100 MB/video, 25 MB/image-or-document batch, 250 MB/remote download, 10-minute videos, 10 pages/files, and 8 million image output pixels. Large/4K jobs can still exceed free resources. One worker and limited FFmpeg/download threads reduce memory use, not guarantee success.
 
-Public links are supported when the source allows server-side access. Public visibility does not mean a site offers downloadable media: bot checks, sign-in requirements, regional restrictions, unavailable formats, and DRM can prevent a download. In particular, a public YouTube test video downloaded locally but YouTube required a bot check from Render's free server on 2026-09-24; YouTube MP4/MP3 cannot be guaranteed on that host. The app shows this clearly. The app does not bypass access controls. Only download content you are entitled to save. PDF/DOCX conversion is page-based; output DOCX contains page images, not OCR/editable source text. Documents with external links/embedded programs are rejected.
+Public links are supported when the source allows server-side access. Public visibility does not mean a site offers downloadable media: bot checks, sign-in requirements, regional restrictions, unavailable formats, and DRM can prevent a download. In particular, a public YouTube test video downloaded locally but YouTube required a bot check from Render's free server on 2026-09-24; YouTube MP4/MP3 cannot be guaranteed on that host. A user-supplied Reddit short link also returned HTTP 403 to the extractor and public JSON endpoint on 2026-09-25. The app reports that block clearly. The app does not bypass access controls. Only download content you are entitled to save. PDF/DOCX conversion is page-based; output DOCX contains page images, not OCR/editable source text. Documents with external links/embedded programs are rejected.
 
 ## Android
 
@@ -53,7 +53,7 @@ cd android
 .\gradlew.bat assembleDebug
 ```
 
-APK: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. This is debug-signed for direct installation/testing, not a Play Store release. Keep a stable private signing key for future production APK updates; CI debug keys can differ from local keys, requiring uninstall/reinstall. Android downloads use the native share sheet to save/send completed files.
+APK: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. This is debug-signed for direct installation/testing, not a Play Store release. Keep a stable private signing key for future production APK updates; CI debug keys can differ from local keys, requiring uninstall/reinstall. Android offers a native folder picker when a job starts, automatically saves the finished file there while the app remains open, and uses the share sheet when no folder was selected.
 
 ## Verification
 
