@@ -20,4 +20,4 @@ ENV PYTHONUNBUFFERED=1
 RUN useradd --create-home appuser && mkdir -p /data && chown appuser:appuser /data
 USER appuser
 EXPOSE 8000
-CMD ["sh", "-c", "exec xvfb-run -a uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

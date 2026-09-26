@@ -121,7 +121,7 @@ def inspect_youtube(url: str) -> dict:
         command += ["--js-runtimes", "deno"]
     try:
         for options in _youtube_client_options():
-            result = subprocess.run(command + options + [url], capture_output=True, text=True, timeout=120, check=False)
+            result = subprocess.run(_youtube_command(command, options, url), capture_output=True, text=True, timeout=120, check=False)
             if result.returncode == 0 or not _youtube_retryable(result.stderr or result.stdout):
                 break
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -257,6 +257,19 @@ def _youtube_retryable(log: str) -> bool:
     ))
 
 
+def _youtube_command(command: list[str], options: list[str], url: str) -> list[str]:
+    args = command + options + [url]
+    # Keep the HTTP server independent of Xvfb startup. A virtual display is a
+    # per-download helper, never PID 1 or a prerequisite for API health checks.
+    virtual_display = shutil.which("xvfb-run")
+    if virtual_display and not os.environ.get("DISPLAY"):
+        args = [virtual_display, "-a", "--server-args=-screen 0 640x480x24 -nolisten tcp"] + args
+        timeout = shutil.which("timeout")
+        if timeout:
+            args = [timeout, "--kill-after=5s", "720s"] + args
+    return args
+
+
 def _write_mp3_metadata(path: Path, title: str | None, album: str | None, control: JobControl) -> None:
     if not title and not album:
         return
@@ -305,7 +318,7 @@ def download_youtube(
     for index, options in enumerate(_youtube_client_options()):
         control.check()
         report(1.0, {"engineActual": "YouTube token provider" if options else "YouTube default client", "downloadAttempt": index + 1})
-        code, log = _run_yt_dlp(command + options + [url], report, control)
+        code, log = _run_yt_dlp(_youtube_command(command, options, url), report, control)
         if code == 0 or not _youtube_retryable(log):
             break
     if code != 0:

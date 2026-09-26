@@ -43,7 +43,7 @@ public class MediaFolderPlugin extends Plugin {
         saveToDownloads(call);
     }
 
-    private void save(PluginCall call) {
+    void save(PluginCall call) {
         Uri destination = null;
         File legacyFile = null;
         try {
@@ -101,6 +101,7 @@ public class MediaFolderPlugin extends Plugin {
             JSObject result = new JSObject();
             result.put("name", name);
             result.put("bytes", copied);
+            result.put("uri", destination != null ? destination.toString() : Uri.fromFile(legacyFile).toString());
             call.resolve(result);
         } catch (Exception error) {
             if (destination != null) {

@@ -187,3 +187,13 @@ def test_youtube_provider_has_bounded_client_fallback(monkeypatch):
     assert attempts[1] == []
     assert downloads._youtube_retryable("ERROR: Sign in to confirm you're not a bot")
     assert not downloads._youtube_retryable("Private video")
+
+
+def test_virtual_display_is_scoped_to_youtube_process(monkeypatch):
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.setattr(downloads.shutil, "which", lambda name: "/usr/bin/" + name if name in {"xvfb-run", "timeout"} else None)
+    command = downloads._youtube_command(["python", "-m", "yt_dlp"], [], "https://youtu.be/example")
+    assert command[:3] == ["/usr/bin/timeout", "--kill-after=5s", "720s"]
+    assert "/usr/bin/xvfb-run" in command
+    monkeypatch.setenv("DISPLAY", ":99")
+    assert downloads._youtube_command(["python"], [], "url") == ["python", "url"]
