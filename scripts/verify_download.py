@@ -52,6 +52,7 @@ def main():
                 previous = state
             if job["status"] in {"failed", "cancelled", "stopped"}:
                 print("Failure:", job.get("error"), flush=True)
+                print("Diagnostics:", json.dumps({key: job.get("details", {}).get(key) for key in ("selectedStreams", "extractorDiagnostics", "downloadAttempt", "engineActual")}), flush=True)
                 return 1
             if job["status"] == "completed":
                 ticket = client.post(f"/api/jobs/{job_id}/download-ticket")

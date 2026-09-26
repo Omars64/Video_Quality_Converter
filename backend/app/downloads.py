@@ -170,7 +170,7 @@ def _youtube_format_selector(quality: str) -> str:
 def _yt_base(output_dir: Path) -> list[str]:
     args = [
         sys.executable, "-m", "yt_dlp",
-        "--no-playlist", "--newline", "--no-warnings",
+        "--no-playlist", "--newline", "--no-quiet",
         "--retries", "4", "--fragment-retries", "4",
         "--max-filesize", str(settings.max_remote_bytes), "--socket-timeout", "30",
         "--concurrent-fragments", str(settings.youtube_concurrent_fragments),
@@ -179,6 +179,7 @@ def _yt_base(output_dir: Path) -> list[str]:
         "--output", "%(title).120B [%(id)s].%(ext)s",
         "--restrict-filenames",
         "--no-simulate", "--progress", "--print", "after_move:MFOUTPUT:%(filepath)j",
+        "--print", "before_dl:MFSELECT:%()j",
     ]
     if shutil.which("deno"):
         args += ["--js-runtimes", "deno"]
@@ -198,6 +199,17 @@ def _run_yt_dlp(command: list[str], report: Callable[[float, dict | None], None]
         for raw in proc.stdout:
             control.check()
             line = raw.strip()
+            if line.startswith("MFSELECT:"):
+                try:
+                    info = json.loads(line[len("MFSELECT:"):])
+                    formats = info.get("requested_formats") or [info]
+                    report(2.0, {"selectedStreams": [
+                        {key: fmt.get(key) for key in ("format_id", "vcodec", "acodec", "ext")}
+                        for fmt in formats
+                    ]})
+                except (ValueError, TypeError):
+                    pass
+                continue
             if line:
                 lines.append(line)
                 if len(lines) > 120:
@@ -215,6 +227,11 @@ def _run_yt_dlp(command: list[str], report: Callable[[float, dict | None], None]
                 report(min(94.0, progress * 0.94), patch)
         code = proc.wait()
         control.check()
+        # Retain only concise diagnostics, never signed CDN URLs or metadata.
+        diagnostic = [re.sub(r"https?://\S+", "[source URL]", line)[:350]
+                      for line in lines if line.startswith(("ERROR:", "WARNING:", "[info]", "[Merger]", "[youtube] [pot"))]
+        if diagnostic:
+            report(94.0 if code == 0 else 1.0, {"extractorDiagnostics": diagnostic[-12:]})
         return code, "\n".join(lines[-50:])
     finally:
         control.unregister_process(proc)
