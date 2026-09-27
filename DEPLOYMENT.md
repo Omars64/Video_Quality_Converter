@@ -53,7 +53,7 @@ cd android
 .\gradlew.bat assembleDebug
 ```
 
-APK: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. This is debug-signed for direct installation/testing, not a Play Store release. Keep a stable private signing key for future production APK updates; CI debug keys can differ from local keys, requiring uninstall/reinstall. Android offers a native folder picker when a job starts, automatically saves the finished file there while the app remains open, and uses the share sheet when no folder was selected.
+APK: `frontend/android/app/build/outputs/apk/debug/app-debug.apk`. This is debug-signed for direct installation/testing, not a Play Store release. Keep a stable private signing key for future production APK updates; CI debug keys can differ from local keys, requiring uninstall/reinstall. Android automatically saves new completed jobs to public Downloads while the app remains open. Android 10+ uses MediaStore without file-system permission; Android 7–9 may request the OS storage permission. No folder picker or share sheet is used. The save verifies file length before publishing.
 
 ## Verification
 
