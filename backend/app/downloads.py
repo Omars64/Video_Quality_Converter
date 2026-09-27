@@ -613,8 +613,9 @@ def _ensure_instagram_audio_compatibility(path: Path, report, control) -> None:
 
 
 def _download_generic_video(url: str, output_dir: Path, report, control, errors: list[str]) -> tuple[Path, str, str] | None:
+    format_selector = _generic_video_format(url)
     command = _yt_base(output_dir) + [
-        "--format", _generic_video_format(url),
+        "--format", format_selector,
         "--merge-output-format", "mp4",
         url,
     ]
@@ -624,7 +625,45 @@ def _download_generic_video(url: str, output_dir: Path, report, control, errors:
         return None
     result = _finished_download(output_dir, log)
     if _is_instagram_post(url) and result.suffix.lower() == ".mp4":
-        _ensure_instagram_audio_compatibility(result, report, control)
+        try:
+            _ensure_instagram_audio_compatibility(result, report, control)
+        except RemoteDownloadError as exc:
+            if "no audio track" not in str(exc).lower():
+                raise
+
+            # Some public Reels expose a video-only web DASH manifest while the
+            # public mobile media endpoint exposes a muxed version with audio.
+            # Retry only this missing-audio case, and never publish either file
+            # unless ffprobe confirms a usable audio stream afterward.
+            errors.append("Instagram web media endpoint exposed no audio stream.")
+            result.unlink(missing_ok=True)
+            report(94.0, {"engineActual": "Instagram public mobile media fallback", "downloadEta": None})
+            fallback = _yt_base(output_dir) + [
+                "--format", format_selector,
+                "--extractor-args", "instagram:app_id=ios",
+                "--merge-output-format", "mp4",
+                url,
+            ]
+            fallback_code, fallback_log = _run_yt_dlp(
+                fallback,
+                lambda progress, metrics: report(max(94.0, progress), metrics),
+                control,
+            )
+            if fallback_code != 0:
+                errors.append(fallback_log)
+                raise RemoteDownloadError(
+                    "Instagram exposed a video-only stream through its public web endpoint, "
+                    "and its public mobile endpoint did not provide a downloadable audio stream."
+                ) from exc
+            result = _finished_download(output_dir, fallback_log)
+            try:
+                _ensure_instagram_audio_compatibility(result, report, control)
+            except RemoteDownloadError:
+                result.unlink(missing_ok=True)
+                raise RemoteDownloadError(
+                    "Instagram did not expose a public audio stream for this Reel. "
+                    "The video-only result was not published."
+                ) from exc
     return result, result.name, mimetypes.guess_type(result.name)[0] or "video/mp4"
 
 

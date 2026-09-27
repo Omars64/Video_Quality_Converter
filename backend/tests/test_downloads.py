@@ -155,6 +155,54 @@ def test_missing_audio_is_not_treated_as_compatible(monkeypatch, tmp_path):
         downloads._ensure_instagram_audio_compatibility(tmp_path / "reel.mp4", lambda *_: None, None)
 
 
+def test_instagram_missing_audio_retries_public_mobile_media(monkeypatch, tmp_path):
+    url = "https://www.instagram.com/reel/example"
+    output_dir = tmp_path / "downloads"
+    output_dir.mkdir()
+    commands = []
+    outputs = [output_dir / "web.mp4", output_dir / "mobile.mp4"]
+
+    def run(command, report, control):
+        commands.append(command)
+        output = outputs[len(commands) - 1]
+        output.write_bytes(b"video")
+        return 0, "MFOUTPUT:" + json.dumps(str(output))
+
+    monkeypatch.setattr(downloads, "_yt_base", lambda _: ["yt-dlp"])
+    monkeypatch.setattr(downloads, "_run_yt_dlp", run)
+    monkeypatch.setattr(downloads, "_audio_stream_info", lambda path: (
+        {"codec_name": "aac", "profile": "LC"} if path.name == "mobile.mp4" else None
+    ))
+
+    result = downloads._download_generic_video(url, output_dir, lambda *_: None, None, [])
+
+    assert result[0] == outputs[1]
+    assert not outputs[0].exists()
+    assert "instagram:app_id=ios" in commands[1]
+    assert "instagram:app_id=ios" not in commands[0]
+
+
+def test_instagram_public_mobile_fallback_still_rejects_silent_media(monkeypatch, tmp_path):
+    url = "https://www.instagram.com/reel/example"
+    output_dir = tmp_path / "downloads"
+    output_dir.mkdir()
+    outputs = [output_dir / "web.mp4", output_dir / "mobile.mp4"]
+
+    def run(command, report, control):
+        output = outputs[0] if "instagram:app_id=ios" not in command else outputs[1]
+        output.write_bytes(b"video")
+        return 0, "MFOUTPUT:" + json.dumps(str(output))
+
+    monkeypatch.setattr(downloads, "_yt_base", lambda _: ["yt-dlp"])
+    monkeypatch.setattr(downloads, "_run_yt_dlp", run)
+    monkeypatch.setattr(downloads, "_audio_stream_info", lambda _: None)
+
+    with pytest.raises(RemoteDownloadError, match="did not expose a public audio stream"):
+        downloads._download_generic_video(url, output_dir, lambda *_: None, None, [])
+    assert not outputs[0].exists()
+    assert not outputs[1].exists()
+
+
 def test_audio_failure_cannot_fall_back_to_video_only_html(monkeypatch, tmp_path):
     monkeypatch.setattr(downloads, "validate_public_url", lambda _: None)
     monkeypatch.setattr(downloads, "_direct_probe", lambda _: None)
